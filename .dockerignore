@@ -1,0 +1,14 @@
+.git
+.gitignore
+.gitattributes
+**/node_modules
+**/dist
+dashboard/cmd/dashboard/*-dist/*
+!dashboard/cmd/dashboard/admin-dist/.gitkeep
+!dashboard/cmd/dashboard/user-dist/.gitkeep
+dashboard/cmd/dashboard/docs
+agent/
+data/
+dist/
+*.md
+docker-compose.yml

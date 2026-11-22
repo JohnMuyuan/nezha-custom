@@ -1,6 +1,6 @@
 # Nezha Custom (哪吒探针 V2 魔改整合版)
 
-基于 **哪吒监控 V2** 全家桶整合的单仓库（Monorepo）魔改版本，将面板后端、官方前台、管理后台与 Agent 被控端整合在同一个仓库中，并通过 GitHub Actions 自动编译并推送 Docker 镜像与二进制文件。
+基于 **哪吒监控 V2** 全家桶整合的单仓库（Monorepo）魔改版本，将面板后端、官方前台、管理后台与 Agent 被控端整合在同一个仓库中，采用**纯本地编译 + 自主上传部署**（无 GitHub Actions）。
 
 ## 目录结构
 
@@ -10,67 +10,87 @@ nezha-custom/
 ├── frontend-user/          # 官方用户前台 (基于 hamster1963/nezha-dash-v2 v2.7.0)
 ├── frontend-admin/         # 管理后台 (基于 nezhahq/admin-frontend v2.6.1)
 ├── agent/                  # 被控端 Agent (基于 nezhahq/agent v2.4.0)
+├── Dockerfile              # 一键多阶段本地构建（自动编译前后台并嵌入面板镜像）
+├── docker-compose.yml      # 服务器部署示例
 ├── scripts/
-│   └── prepare-frontends.sh # 同步本地编译后的前后台静态文件到 dashboard 嵌入目录
-├── docker-compose.yml      # Docker 一键部署示例
-├── UPSTREAM.md             # 上游仓库版本与基线记录
-└── .github/workflows/      # 自动构建与发布工作流
+│   ├── build-docker.ps1    # 本地构建并推送 Docker 镜像（或导出 tar 包）
+│   ├── build-agent.ps1     # 本地交叉编译多平台 Agent 并可选发布到 GitHub Release
+│   └── prepare-frontends.sh # 同步前后台静态文件到 dashboard 嵌入目录
+└── UPSTREAM.md             # 上游仓库版本与基线记录
 ```
 
-## 快速部署（Docker）
+## 1. 本地构建面板 Docker 镜像（需 Docker Desktop 或 WSL）
 
-推送代码到 `main` 分支后，GitHub Actions 会自动编译魔改后的 `frontend-user` + `frontend-admin` + `dashboard`，并发布多架构镜像（`linux/amd64`、`linux/arm64`）到：
+根目录的 `Dockerfile` 会自动依次编译本地的 `frontend-user`、`frontend-admin` 和 `dashboard`，打包成一个最小体积的 Linux 镜像（`busybox:stable-musl`）。
 
-```text
-ghcr.io/johnmuyuan/nezha-custom:latest
+### 方式 A：构建并推送到 GHCR（推荐）
+
+首次推送到 `ghcr.io` 前先登录一次：
+
+```powershell
+# 申请 write:packages 权限（首次执行一次即可）
+gh auth refresh -h github.com -s write:packages
+
+# 登录 GHCR
+gh auth token | docker login ghcr.io -u JohnMuyuan --password-stdin
 ```
 
-在服务器上使用仓库自带的 `docker-compose.yml` 即可启动：
+一键构建并推送（默认 `linux/amd64`，如需同时打 ARM64 可改 `-Platforms "linux/amd64,linux/arm64"`）：
+
+```powershell
+# 仅嵌入本地魔改前后台（最快）
+.\scripts\build-docker.ps1 -Push
+
+# 如需同时内置额外第三方主题 + IPInfo GeoIP 国家旗帜数据库：
+.\scripts\build-docker.ps1 -Push -WithCommunityThemes -IpInfoToken "你的IPINFO_TOKEN"
+```
+
+服务器上使用 `docker-compose.yml` 拉取重启即可：
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-默认监听端口 `8008`，数据保存在当前目录 `./data`。首次初始化默认管理员账号密码为 `admin` / `admin`（登录后请第一时间修改）。
+### 方式 B：不推镜像仓库，直接导出 `.tar` 传到服务器
 
-## 可选配置：开启 GeoIP 国家/地区旗帜
+```powershell
+.\scripts\build-docker.ps1 -ExportTar .\dist\nezha-custom.tar
+```
 
-哪吒面板构建时会嵌入 IPInfo 的免费 `country.mmdb` 数据库用于自动识别服务器 IP 归属国旗：
-
-1. 前往 [ipinfo.io](https://ipinfo.io/) 注册免费账号并获取 Access Token
-2. 在本仓库的 **Settings → Secrets and variables → Actions → New repository secret** 中添加：
-   - Name: `IPINFO_TOKEN`
-   - Value: 你的 IPInfo Token
-3. 重新触发一次 `Build & Release Dashboard` 工作流即可将真实 GeoIP 数据库打包进镜像。
-
-（不配置也不影响构建和正常运行，只是自动 IP 归属国旗识别会回退为空。）
-
-## 发布方式
-
-* **日常更新面板**：直接推送代码到 `main` 分支（或手动触发 Actions），自动构建并更新 `ghcr.io/johnmuyuan/nezha-custom:latest`。
-* **发布面板正式版**：推送 `v*` 标签（如 `git tag v2.7.0-custom.1 && git push --tags`），会同时推送 Docker 镜像和 GitHub Release 二进制压缩包。
-* **发布魔改 Agent**：推送 `agent-v*` 标签（如 `git tag agent-v2.4.0-custom.1 && git push --tags`），自动编译多平台 Agent 并发布到 GitHub Release。
-  > 注意：如果你魔改了 `agent/`，建议在魔改时顺便修改 `agent/cmd/agent/main.go` 中的自更新仓库地址，或在客户端配置中关闭自动更新，避免被官方版本覆盖。
-
-## 本地开发说明
+上传到 Linux 服务器后执行：
 
 ```bash
-# 1. 前台开发 (支持 Mock 数据)
+docker load -i nezha-custom.tar
+docker compose up -d
+```
+
+## 2. 本地交叉编译 Agent（Windows 直接可用，无需 Docker）
+
+Agent 为纯 Go（`CGO_ENABLED=0`），在 Windows 上即可直接编译 Linux / Windows / macOS 多平台压缩包：
+
+```powershell
+# 编译到 dist/agent/
+.\scripts\build-agent.ps1 -Version "v2.4.0-custom.1"
+
+# 编译并直接上传发布到 GitHub Release
+.\scripts\build-agent.ps1 -Version "v2.4.0-custom.1" -Publish -ReleaseTag "agent-v2.4.0-custom.1"
+```
+
+> 提示：如果你魔改了 `agent/`，记得修改 `agent/cmd/agent/main.go` 中的自更新仓库地址或在客户端禁用自动更新，避免被官方版本覆盖。
+
+## 3. 本地开发调试
+
+```powershell
+# 前台开发（内置 Mock 数据，无需后端即可实时预览 UI）
 cd frontend-user
 pnpm install
 pnpm run dev:mock
 
-# 2. 后台开发
+# 后台开发
 cd frontend-admin
 npm ci
 npm run dev
-
-# 3. 面板后端 (需先准备前端构建产物并生成 swagger 文档)
-cd dashboard
-go install github.com/swaggo/swag/cmd/swag@v1.16.6
-swag init --pd -d cmd/dashboard -g main.go -o cmd/dashboard/docs
-go run -tags go_json ./cmd/dashboard
 ```
 
 ## 开源协议与致谢
