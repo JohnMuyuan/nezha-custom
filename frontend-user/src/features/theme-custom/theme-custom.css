@@ -1,0 +1,289 @@
+/* ============================================================================
+ * Nezha Custom Theme Enhancements Stylesheet
+ * ============================================================================ */
+
+:root {
+	color-scheme: light dark;
+	--nz-card-glass: hsl(var(--card) / 0.9);
+	--nz-border-soft: hsl(var(--border) / 0.55);
+	--nz-greeting-color: #d97706;
+	--nz-greeting-shadow: 0 0 6px rgba(217, 119, 6, 0.25);
+	--nz-uptime-color: rgba(0, 0, 0, 0.65);
+	--nz-accent-rgb: 59, 130, 246;
+}
+
+.dark {
+	--nz-card-glass: hsl(var(--card) / 0.84);
+	--nz-border-soft: hsl(var(--border) / 0.6);
+	--nz-greeting-color: #ffcc00;
+	--nz-greeting-shadow: 0 0 10px rgba(255, 204, 0, 0.55);
+	--nz-uptime-color: rgba(255, 255, 255, 0.8);
+	--nz-accent-rgb: 96, 165, 250;
+}
+
+/* Custom font injection */
+html.nz-has-custom-font,
+html.nz-has-custom-font body,
+html.nz-has-custom-font h1,
+html.nz-has-custom-font h2,
+html.nz-has-custom-font h3,
+html.nz-has-custom-font h4,
+html.nz-has-custom-font h5 {
+	font-family: var(--nz-custom-font, Inter, system-ui, sans-serif);
+}
+
+/* Background blur & tint overlay when enabled */
+html.nz-bg-blur-enabled .nz-bg-layer::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	backdrop-filter: blur(4px);
+	-webkit-backdrop-filter: blur(4px);
+	background-color: rgba(255, 255, 255, 0.1);
+}
+
+html.dark.nz-bg-blur-enabled .nz-bg-layer::after {
+	background-color: rgba(0, 0, 0, 0.14);
+}
+
+/* Native modal <dialog> scroll containment & styling (modern-web-guidance) */
+dialog.nz-custom-modal {
+	margin: auto;
+	padding: 0;
+	border: 1px solid var(--nz-border-soft);
+	border-radius: 16px;
+	background-color: var(--nz-card-glass);
+	color: hsl(var(--foreground));
+	box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	max-width: min(95vw, 760px);
+	max-height: 90dvh;
+	overflow: hidden;
+}
+
+dialog.nz-custom-modal[open] {
+	display: flex;
+	flex-direction: column;
+}
+
+dialog.nz-custom-modal:modal {
+	overscroll-behavior: contain;
+}
+
+dialog.nz-custom-modal::backdrop {
+	background-color: rgba(0, 0, 0, 0.45);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+	overflow: hidden;
+	overscroll-behavior: contain;
+}
+
+/* VPS Remaining Value Tag */
+.nz-vps-value-tag {
+	font-size: 9px;
+	font-weight: 600;
+	padding: 1.5px 4px;
+	border-radius: 5px;
+	line-height: 1.3;
+	white-space: nowrap;
+}
+.nz-vps-value-tag.excellent {
+	color: #10b981;
+	background: rgba(16, 185, 129, 0.16);
+}
+.nz-vps-value-tag.good {
+	color: #22c55e;
+	background: rgba(34, 197, 94, 0.16);
+}
+.nz-vps-value-tag.moderate {
+	color: #f59e0b;
+	background: rgba(245, 158, 11, 0.16);
+}
+.nz-vps-value-tag.low {
+	color: #ef4444;
+	background: rgba(239, 68, 68, 0.16);
+}
+.nz-vps-value-tag.very-low {
+	color: #dc2626;
+	background: rgba(220, 38, 38, 0.18);
+}
+.nz-vps-value-tag.expired {
+	color: #9ca3af;
+	background: rgba(156, 163, 175, 0.16);
+}
+
+/* Mac-style floating capsule dock */
+.nz-mac-dock {
+	position: fixed;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 8px 6px;
+	background-color: var(--nz-card-glass);
+	border: 1px solid var(--nz-border-soft);
+	border-radius: 999px;
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+	z-index: 45;
+	transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.nz-mac-dock.pos-right {
+	right: 14px;
+}
+
+.nz-mac-dock.pos-left {
+	left: 14px;
+}
+
+.nz-dock-btn {
+	width: 38px;
+	height: 38px;
+	border-radius: 999px;
+	border: none;
+	background: transparent;
+	color: hsl(var(--foreground));
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	transition:
+		transform 0.2s ease,
+		background-color 0.2s ease,
+		color 0.2s ease;
+}
+
+.nz-dock-btn:hover {
+	background-color: hsl(var(--muted));
+	color: hsl(var(--primary));
+	transform: scale(1.08);
+}
+
+.nz-dock-btn.is-active {
+	background-color: hsl(var(--primary));
+	color: hsl(var(--primary-foreground));
+}
+
+@media (max-width: 768px) {
+	.nz-mac-dock,
+	.nz-mac-dock.pos-right,
+	.nz-mac-dock.pos-left {
+		top: auto;
+		bottom: 16px;
+		right: auto;
+		left: 50%;
+		transform: translateX(-50%);
+		flex-direction: row;
+		padding: 6px 10px;
+		z-index: 50;
+		width: max-content;
+	}
+	.nz-dock-btn {
+		width: 34px;
+		height: 34px;
+	}
+}
+
+/* Visitor Welcome Bubble */
+.nz-welcome-bubble {
+	position: fixed;
+	left: 20px;
+	bottom: 20px;
+	z-index: 48;
+	width: 280px;
+	max-width: calc(100vw - 32px);
+	border-radius: 16px;
+	background-color: var(--nz-card-glass);
+	border: 1px solid var(--nz-border-soft);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+	color: hsl(var(--foreground));
+	animation: nz-slide-in-left 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)
+		forwards;
+}
+
+@media (max-width: 768px) {
+	.nz-welcome-bubble {
+		bottom: 70px;
+		left: 16px;
+	}
+}
+
+@keyframes nz-slide-in-left {
+	from {
+		transform: translateX(-115%);
+		opacity: 0;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+.nz-spoiler {
+	background: hsl(var(--primary));
+	color: transparent;
+	user-select: none;
+	border-radius: 4px;
+	padding: 1px 6px;
+	transition: opacity 0.2s ease;
+}
+
+.nz-spoiler:hover {
+	opacity: 0.85;
+}
+
+/* Earth globe user marker pulse */
+.nz-earth-user-marker {
+	width: 34px;
+	height: 34px;
+	border-radius: 999px;
+	background: var(--nz-card-glass);
+	border: 2px solid #3b82f6;
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	animation: nz-earth-pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes nz-earth-pulse {
+	0% {
+		box-shadow: 0 0 0 0 rgba(var(--nz-accent-rgb), 0.7);
+		transform: translate(-50%, -50%) scale(1);
+	}
+	50% {
+		box-shadow: 0 0 0 14px rgba(var(--nz-accent-rgb), 0);
+		transform: translate(-50%, -50%) scale(1.12);
+	}
+	100% {
+		box-shadow: 0 0 0 0 rgba(var(--nz-accent-rgb), 0);
+		transform: translate(-50%, -50%) scale(1);
+	}
+}
+
+/* Custom thin scrollbars inside panels */
+.nz-thin-scroll {
+	scrollbar-width: thin;
+	scrollbar-color: hsl(var(--border)) transparent;
+}
+
+@supports not (scrollbar-color: auto) {
+	.nz-thin-scroll {
+		scrollbar-width: auto;
+	}
+	.nz-thin-scroll::-webkit-scrollbar {
+		width: 5px;
+		height: 5px;
+	}
+	.nz-thin-scroll::-webkit-scrollbar-thumb {
+		background: hsl(var(--border));
+		border-radius: 999px;
+	}
+}

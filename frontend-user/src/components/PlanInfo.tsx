@@ -1,10 +1,16 @@
+import { RemainingValueBadge } from "@/features/theme-custom/RemainingValueBadge";
+import { useThemeConfig } from "@/features/theme-custom/theme-config";
 import { cn, type PublicNoteData } from "@/lib/utils";
+import type { NezhaServer } from "@/types/nezha-api";
 
 export default function PlanInfo({
 	parsedData,
+	server,
 }: {
 	parsedData: PublicNoteData;
+	server?: NezhaServer;
 }) {
+	const { remaining_value } = useThemeConfig();
 	if (!parsedData?.planDataMod) {
 		return null;
 	}
@@ -19,8 +25,16 @@ export default function PlanInfo({
 		? parsedData.planDataMod.networkRoute.split(",")
 		: [];
 
+	const showValueFirst =
+		Boolean(server) && remaining_value.tag_position === "first";
+	const showValueLast =
+		Boolean(server) && remaining_value.tag_position !== "first";
+
 	return (
 		<section className="flex gap-1 items-center flex-wrap mt-0.5">
+			{showValueFirst && server && (
+				<RemainingValueBadge server={server} parsedData={parsedData} />
+			)}
 			{parsedData.planDataMod.bandwidth !== "" && (
 				<p
 					className={cn(
@@ -80,6 +94,9 @@ export default function PlanInfo({
 					</p>
 				);
 			})}
+			{showValueLast && server && (
+				<RemainingValueBadge server={server} parsedData={parsedData} />
+			)}
 		</section>
 	);
 }

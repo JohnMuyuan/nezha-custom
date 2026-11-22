@@ -32,7 +32,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { useTranslation } from "react-i18next"
-import { Navigate } from "react-router-dom"
+import { Link, Navigate } from "react-router-dom"
 import { toast } from "sonner"
 import { z } from "zod"
 
@@ -149,6 +149,28 @@ export default function SettingsPage() {
     return (
         <div className="px-3">
             <SettingsTab className="mt-6 mb-4 w-full" />
+            <Card className="mb-4 border-primary/20 bg-primary/5">
+                <CardContent className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm">
+                        <span className="font-medium">
+                            {t("ThemeStudio.BannerTitle", {
+                                defaultValue: "✨ 已内置主题增强可视化配置",
+                            })}
+                        </span>
+                        <span className="ml-2 text-muted-foreground">
+                            {t("ThemeStudio.BannerDesc", {
+                                defaultValue:
+                                    "流量进度条、剩余价值、资产统计、交易助手、3D 地球、三网延迟、续费日历、问候语等均可在可视化页面按需开关。",
+                            })}
+                        </span>
+                    </div>
+                    <Button asChild size="sm" variant="default" className="shrink-0">
+                        <Link to="/dashboard/settings/theme-custom">
+                            {t("ThemeStudio.BannerAction", { defaultValue: "打开主题增强设置" })}
+                        </Link>
+                    </Button>
+                </CardContent>
+            </Card>
             <div>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2 my-2">

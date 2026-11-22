@@ -21,6 +21,7 @@ type ConfigClass struct {
 	onlineHistoryRetentionMu sync.RWMutex
 	frontendSelectionMu      sync.RWMutex
 	natDomainPolicyMu        sync.RWMutex
+	themeConfigMu            sync.RWMutex
 	FrontendStore            *frontend.Store `json:"-"`
 
 	IgnoredIPNotificationServerIDs map[uint64]bool `json:"ignored_ip_notification_server_ids,omitempty"`
@@ -98,6 +99,21 @@ func (c *ConfigClass) CommitOnlineHistoryRetention(days *int, persist func() err
 	return nil
 }
 
+// CommitThemeConfig applies a theme_config update with rollback on persistence failure.
+func (c *ConfigClass) CommitThemeConfig(tc *model.ThemeConfig, persist func() error) error {
+	c.themeConfigMu.Lock()
+	defer c.themeConfigMu.Unlock()
+	previous := c.ThemeConfig.Clone()
+	if tc != nil {
+		c.ThemeConfig = tc.Clone()
+	}
+	if err := persist(); err != nil {
+		c.ThemeConfig = previous
+		return err
+	}
+	return nil
+}
+
 // SettingsSnapshot copies response fields without copying the retention mutex.
 func (c *ConfigClass) SettingsSnapshot() model.Setting {
 	c.frontendSelectionMu.RLock()
@@ -106,9 +122,17 @@ func (c *ConfigClass) SettingsSnapshot() model.Setting {
 	defer c.natDomainPolicyMu.RUnlock()
 	c.onlineHistoryRetentionMu.RLock()
 	defer c.onlineHistoryRetentionMu.RUnlock()
+	c.themeConfigMu.RLock()
+	defer c.themeConfigMu.RUnlock()
+	guests := c.ConfigForGuests
+	if guests.ThemeConfig != nil {
+		guests.ThemeConfig = guests.ThemeConfig.Clone()
+	} else {
+		guests.ThemeConfig = model.DefaultThemeConfig()
+	}
 	return model.Setting{
 		NATMemberDomains:               append([]string(nil), c.NATMemberDomains...),
-		ConfigForGuests:                c.ConfigForGuests,
+		ConfigForGuests:                guests,
 		ConfigDashboard:                c.ConfigDashboard,
 		IgnoredIPNotificationServerIDs: c.IgnoredIPNotificationServerIDs,
 		Oauth2Providers:                c.Oauth2Providers,

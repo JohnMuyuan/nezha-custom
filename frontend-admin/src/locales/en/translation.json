@@ -396,5 +396,30 @@
             "expired": "Expired",
             "unavailable": "Unavailable"
         }
+    },
+    "ThemeStudio": {
+        "Tab": "Theme Studio",
+        "Title": "Theme Enhancements Studio",
+        "Description": "All custom theme enhancements are natively built in and persisted on the server. Toggle and configure features visually without hand-editing HTML/JS.",
+        "EnabledCount": "{{count}} / {{total}} enabled",
+        "EnableAll": "Enable all",
+        "DisableAll": "Disable all",
+        "ResetDefaults": "Reset defaults",
+        "ResetHint": "Defaults restored. Click Save to apply.",
+        "Saving": "Saving...",
+        "SaveChanges": "Save Theme Enhancements",
+        "BannerTitle": "✨ Built-in Theme Enhancements Studio",
+        "BannerDesc": "Configure traffic bars, remaining value badges, asset stats, trade calculator, 3D globe, tri-network ping, renewal calendar, greetings, and more visually.",
+        "BannerAction": "Open Theme Studio",
+        "Sections": {
+            "Appearance": "Appearance, Fonts & Layout",
+            "AppearanceDesc": "Configure subtitle, background images & blur, custom fonts, header links, and card display options."
+        },
+        "Fields": {
+            "CustomDesc": "Header Subtitle",
+            "CustomLogo": "Custom Logo URL",
+            "BackgroundImage": "Desktop Background Image URL",
+            "MobileBackgroundImage": "Mobile Background Image URL (optional)"
+        }
     }
 }

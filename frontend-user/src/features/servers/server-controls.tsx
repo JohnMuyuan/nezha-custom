@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 import GroupSwitch from "@/components/GroupSwitch";
 import { SORT_TYPES, type SortContextType } from "@/context/sort-context";
+import { TriNetworkPingSwitch } from "@/features/theme-custom/TriNetworkPing";
 import { cn } from "@/lib/utils";
 import type { useServerPreferences } from "./use-server-preferences";
 
@@ -40,11 +41,9 @@ export function ServerControls({
 }: Props) {
 	const { t } = useTranslation();
 	return (
-		<div
-			hidden={!hasServers}
-			className="flex mt-6 items-center justify-between gap-2 server-overview-controls"
-		>
-			<section className="flex items-center gap-2 w-full overflow-hidden">
+		<div hidden={!hasServers} className="mt-6 flex flex-col gap-2">
+			<div className="flex items-center justify-between gap-2 server-overview-controls">
+				<section className="flex items-center gap-2 w-full overflow-hidden">
 				<button
 					onClick={toggleMap}
 					className={cn(
@@ -98,9 +97,14 @@ export function ServerControls({
 					setCurrentTab={handleTagChange}
 				/>
 			</section>
-			<div
-				className={cn(
-					"flex h-8 items-center rounded-full border border-stone-200 bg-white text-sm text-stone-600 shadow-xs transition-all dark:border-stone-800 dark:bg-stone-800 dark:text-stone-300 dark:shadow-none shrink-0",
+			<div className="flex shrink-0 items-center gap-2">
+				<TriNetworkPingSwitch
+					className="hidden sm:inline-flex"
+					customBackgroundImage={customBackgroundImage}
+				/>
+				<div
+					className={cn(
+						"flex h-8 items-center rounded-full border border-stone-200 bg-white text-sm text-stone-600 shadow-xs transition-all dark:border-stone-800 dark:bg-stone-800 dark:text-stone-300 dark:shadow-none shrink-0",
 					{
 						"dark:border-stone-600/80 dark:bg-stone-800/80 bg-white/75":
 							customBackgroundImage,
@@ -155,6 +159,11 @@ export function ServerControls({
 						))}
 					</select>
 				</span>
+			</div>
+			</div>
+			</div>
+			<div className="flex justify-end sm:hidden">
+				<TriNetworkPingSwitch customBackgroundImage={customBackgroundImage} />
 			</div>
 		</div>
 	);

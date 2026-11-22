@@ -196,7 +196,9 @@ function ServerCardInline({
 							</div>
 						</div>
 					</section>
-					{parsedData?.planDataMod && <PlanInfo parsedData={parsedData} />}
+					{parsedData?.planDataMod && (
+						<PlanInfo parsedData={parsedData} server={serverInfo} />
+					)}
 				</div>
 			</Card>
 		</section>
@@ -241,7 +243,9 @@ function ServerCardInline({
 				</div>
 			</section>
 			<Separator orientation="vertical" className="h-8 ml-3 lg:ml-1 mr-3" />
-			{parsedData?.planDataMod && <PlanInfo parsedData={parsedData} />}
+			{parsedData?.planDataMod && (
+				<PlanInfo parsedData={parsedData} server={serverInfo} />
+			)}
 		</Card>
 	);
 }

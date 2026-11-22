@@ -5,6 +5,7 @@ import {
 	type SortOrder,
 	type SortType,
 } from "@/context/sort-context";
+import type { ThemeAppearanceConfig } from "@/features/theme-custom/theme-config";
 import { safeSessionStorage } from "@/lib/storage";
 
 export interface RuntimeConfig {
@@ -51,29 +52,55 @@ const defaults: RuntimeConfig = {
 };
 
 let snapshot = defaults;
+let themeAppearanceFallback: ThemeAppearanceConfig | null = null;
+
+export function setThemeAppearanceFallback(
+	appearance: ThemeAppearanceConfig | null,
+) {
+	themeAppearanceFallback = appearance;
+	refreshRuntimeConfig();
+}
 
 // Keep the public window.* custom_code API at this boundary.
 export function readRuntimeConfig(): RuntimeConfig {
 	if (typeof window === "undefined") return defaults;
+	const fb = themeAppearanceFallback;
+	const fbLinks =
+		fb && fb.custom_links.length > 0
+			? JSON.stringify(fb.custom_links)
+			: undefined;
+
 	const next: RuntimeConfig = {
 		forceTheme:
 			window.ForceTheme === "dark" || window.ForceTheme === "light"
 				? window.ForceTheme
 				: undefined,
-		backgroundImage: text(window.CustomBackgroundImage),
-		mobileBackgroundImage: text(window.CustomMobileBackgroundImage),
+		backgroundImage:
+			text(window.CustomBackgroundImage) ?? text(fb?.background_image),
+		mobileBackgroundImage:
+			text(window.CustomMobileBackgroundImage) ??
+			text(fb?.mobile_background_image),
 		forceShowServices: Boolean(window.ForceShowServices),
 		forceShowMap: Boolean(window.ForceShowMap),
 		forceCardInline: Boolean(window.ForceCardInline),
 		forcePeakCutEnabled: Boolean(window.ForcePeakCutEnabled),
-		customLogo: text(window.CustomLogo),
-		customDesc: text(window.CustomDesc),
-		customLinks: text(window.CustomLinks),
+		customLogo: text(window.CustomLogo) ?? text(fb?.custom_logo),
+		customDesc: text(window.CustomDesc) ?? text(fb?.custom_desc),
+		customLinks: text(window.CustomLinks) ?? fbLinks,
 		customIllustration: text(window.CustomIllustration),
-		showNetTransfer: Boolean(window.ShowNetTransfer),
-		fixedTopServerName: Boolean(window.FixedTopServerName),
+		showNetTransfer:
+			window.ShowNetTransfer !== undefined
+				? Boolean(window.ShowNetTransfer)
+				: Boolean(fb?.show_net_transfer),
+		fixedTopServerName:
+			window.FixedTopServerName !== undefined
+				? Boolean(window.FixedTopServerName)
+				: Boolean(fb?.fixed_top_server_name),
 		forceUseSvgFlag: Boolean(window.ForceUseSvgFlag),
-		disableAnimatedMan: Boolean(window.DisableAnimatedMan),
+		disableAnimatedMan:
+			window.DisableAnimatedMan !== undefined
+				? Boolean(window.DisableAnimatedMan)
+				: Boolean(fb?.disable_animated_man),
 		forceSortType: SORT_TYPES.includes(window.ForceSortType as SortType)
 			? (window.ForceSortType as SortType)
 			: undefined,

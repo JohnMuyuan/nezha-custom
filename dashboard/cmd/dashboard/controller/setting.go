@@ -101,6 +101,9 @@ func updateConfig(c *gin.Context) (any, error) {
 		(*sf.OnlineStatsDays < model.MinOnlineStatsDays || *sf.OnlineStatsDays > model.MaxOnlineStatsDays) {
 		return nil, fmt.Errorf("online_stats_days must be between %d and %d", model.MinOnlineStatsDays, model.MaxOnlineStatsDays)
 	}
+	if err := model.ValidateThemeConfig(sf.ThemeConfig); err != nil {
+		return nil, err
+	}
 
 	domains, err := singleton.ValidateNATMemberDomains(sf.NATMemberDomains, sf.DashboardHost, sf.InstallHost, sf.ReservedHosts, singleton.Conf.ListenHost)
 	if err != nil {
@@ -128,14 +131,16 @@ func updateConfig(c *gin.Context) (any, error) {
 			singleton.Conf.AgentRealIPHeader = sf.AgentRealIPHeader
 			singleton.Conf.AgentTLS = sf.AgentTLS
 			return singleton.Conf.CommitOnlineHistoryRetention(sf.OnlineStatsDays, func() error {
-				mcpWasEnabled := singleton.Conf.MCPEnabled()
-				mcpNext := resolveSettingEnableMCP(sf.EnableMCP, mcpWasEnabled)
-				return applyEnableMCPTransition(
-					mcpWasEnabled, mcpNext,
-					singleton.Conf.SetMCPEnabled,
-					singleton.Conf.Save,
-					fireMCPKillSwitch,
-				)
+				return singleton.Conf.CommitThemeConfig(sf.ThemeConfig, func() error {
+					mcpWasEnabled := singleton.Conf.MCPEnabled()
+					mcpNext := resolveSettingEnableMCP(sf.EnableMCP, mcpWasEnabled)
+					return applyEnableMCPTransition(
+						mcpWasEnabled, mcpNext,
+						singleton.Conf.SetMCPEnabled,
+						singleton.Conf.Save,
+						fireMCPKillSwitch,
+					)
+				})
 			})
 		})
 	}); err != nil {

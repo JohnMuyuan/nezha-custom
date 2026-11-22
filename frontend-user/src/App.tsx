@@ -16,11 +16,20 @@ import Header, { RefreshToast } from "./components/Header";
 import LocalErrorBoundary from "./components/LocalErrorBoundary";
 import { ServerDetailPageLoading } from "./components/loading/ServerDetailLoading";
 import RetryableLazy from "./components/RetryableLazy";
+import { ThemeCustomOverlay } from "./features/theme-custom/ThemeCustomOverlay";
+import {
+	mergeThemeConfig,
+	ThemeCustomProvider,
+} from "./features/theme-custom/theme-config";
 import { useBackground } from "./hooks/use-background";
 import { useTheme } from "./hooks/use-theme";
 import { InjectContext } from "./lib/inject";
 import { fetchSetting } from "./lib/nezha-api";
-import { refreshRuntimeConfig, useRuntimeConfig } from "./lib/runtime-config";
+import {
+	refreshRuntimeConfig,
+	setThemeAppearanceFallback,
+	useRuntimeConfig,
+} from "./lib/runtime-config";
 import {
 	getPreloadedServerDetail,
 	loadServerDetail,
@@ -77,6 +86,7 @@ const MainApp: React.FC = () => {
 	const { i18n } = useTranslation();
 	const { setTheme } = useTheme();
 	const customCode = settingData?.data?.config?.custom_code ?? "";
+	const rawThemeConfig = settingData?.data?.config?.theme_config;
 	const [initialization, setInitialization] = useState<{
 		code: string;
 		status: "loading" | "ready" | "error";
@@ -85,6 +95,15 @@ const MainApp: React.FC = () => {
 	const { forceTheme, mobileBackgroundImage: customMobileBackgroundImage } =
 		useRuntimeConfig();
 	const { backgroundImage: customBackgroundImage } = useBackground();
+
+	useEffect(() => {
+		if (rawThemeConfig) {
+			setThemeAppearanceFallback(mergeThemeConfig(rawThemeConfig).appearance);
+		} else {
+			setThemeAppearanceFallback(null);
+		}
+		return () => setThemeAppearanceFallback(null);
+	}, [rawThemeConfig]);
 
 	useEffect(() => {
 		// Preloading is optional; lazy routing retains its normal error boundary.
@@ -150,73 +169,76 @@ const MainApp: React.FC = () => {
 
 	return (
 		<ErrorBoundary>
-			{initialization.status === "error" && (
-				<div role="alert">
-					Custom code initialization failed: {initialization.error?.message}
+			<ThemeCustomProvider rawConfig={rawThemeConfig}>
+				{initialization.status === "error" && (
+					<div role="alert">
+						Custom code initialization failed: {initialization.error?.message}
+					</div>
+				)}
+				{/* 固定定位的背景层 */}
+				{customBackgroundImage && (
+					<div
+						className={cn(
+							"nz-bg-layer fixed inset-0 z-0 bg-cover min-h-lvh bg-no-repeat bg-center dark:brightness-75",
+							{
+								"hidden sm:block": customMobileBackgroundImage,
+							},
+						)}
+						style={{ backgroundImage: `url(${customBackgroundImage})` }}
+					/>
+				)}
+				{customMobileBackgroundImage && (
+					<div
+						className={cn(
+							"nz-bg-layer fixed inset-0 z-0 bg-cover min-h-lvh bg-no-repeat bg-center sm:hidden dark:brightness-75",
+						)}
+						style={{ backgroundImage: `url(${customMobileBackgroundImage})` }}
+					/>
+				)}
+				<div
+					className={cn("app-shell flex w-full flex-col", {
+						"bg-background": !customBackgroundImage,
+					})}
+				>
+					<main className="flex z-20 min-h-0 flex-1 flex-col gap-4 p-4 md:p-10 md:pt-8">
+						<RefreshToast />
+						<Header configurationLoading={configurationLoading} />
+						<DashCommand />
+						<LocalErrorBoundary resetKey={pathname} allowReload>
+							<Routes>
+								<Route
+									path="/"
+									element={
+										<Server
+											backendError={initialBackendError}
+											configurationLoading={configurationLoading}
+										/>
+									}
+								/>
+								<Route
+									path="/server/:id"
+									element={
+										<ServerDetail configurationLoading={configurationLoading} />
+									}
+								/>
+								<Route path="/error" element={<ErrorPage />} />
+								<Route
+									path="*"
+									element={
+										<RetryableLazy
+											load={loadNotFound}
+											componentProps={{}}
+											fallback={null}
+										/>
+									}
+								/>
+							</Routes>
+						</LocalErrorBoundary>
+						<Footer />
+					</main>
 				</div>
-			)}
-			{/* 固定定位的背景层 */}
-			{customBackgroundImage && (
-				<div
-					className={cn(
-						"fixed inset-0 z-0 bg-cover min-h-lvh bg-no-repeat bg-center dark:brightness-75",
-						{
-							"hidden sm:block": customMobileBackgroundImage,
-						},
-					)}
-					style={{ backgroundImage: `url(${customBackgroundImage})` }}
-				/>
-			)}
-			{customMobileBackgroundImage && (
-				<div
-					className={cn(
-						"fixed inset-0 z-0 bg-cover min-h-lvh bg-no-repeat bg-center sm:hidden dark:brightness-75",
-					)}
-					style={{ backgroundImage: `url(${customMobileBackgroundImage})` }}
-				/>
-			)}
-			<div
-				className={cn("app-shell flex w-full flex-col", {
-					"bg-background": !customBackgroundImage,
-				})}
-			>
-				<main className="flex z-20 min-h-0 flex-1 flex-col gap-4 p-4 md:p-10 md:pt-8">
-					<RefreshToast />
-					<Header configurationLoading={configurationLoading} />
-					<DashCommand />
-					<LocalErrorBoundary resetKey={pathname} allowReload>
-						<Routes>
-							<Route
-								path="/"
-								element={
-									<Server
-										backendError={initialBackendError}
-										configurationLoading={configurationLoading}
-									/>
-								}
-							/>
-							<Route
-								path="/server/:id"
-								element={
-									<ServerDetail configurationLoading={configurationLoading} />
-								}
-							/>
-							<Route path="/error" element={<ErrorPage />} />
-							<Route
-								path="*"
-								element={
-									<RetryableLazy
-										load={loadNotFound}
-										componentProps={{}}
-										fallback={null}
-									/>
-								}
-							/>
-						</Routes>
-					</LocalErrorBoundary>
-					<Footer />
-				</main>
-			</div>
+				<ThemeCustomOverlay />
+			</ThemeCustomProvider>
 		</ErrorBoundary>
 	);
 };

@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import type React from "react";
 import { useTranslation } from "react-i18next";
+import { useThemeConfig } from "@/features/theme-custom/theme-config";
 import { fetchSetting } from "@/lib/nezha-api";
 
 const Footer: React.FC = () => {
 	const { t } = useTranslation();
+	const { appearance } = useThemeConfig();
 	const isMac = /macintosh|mac os x/i.test(navigator.userAgent);
 
 	const { data: settingData } = useQuery({
@@ -14,6 +16,10 @@ const Footer: React.FC = () => {
 		refetchOnWindowFocus: true,
 		retry: false,
 	});
+
+	if (appearance.hide_footer) {
+		return null;
+	}
 
 	return (
 		<footer className="mx-auto w-full max-w-5xl px-4 lg:px-0 pb-4 server-footer">

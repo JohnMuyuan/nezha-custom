@@ -8,6 +8,8 @@
  * ---------------------------------------------------------------
  */
 
+import type { ThemeConfig } from "./theme-config"
+
 export interface GithubComNezhahqNezhaModelCommonResponseAny {
     data: any
     error: string
@@ -733,6 +735,7 @@ export interface ModelSetting {
     site_name: string
     /** 用于前端判断生成的安装命令是否启用 TLS */
     tls: boolean
+    theme_config?: ThemeConfig
     user_template: string
     /** 前端真实IP */
     web_real_ip_header: string
@@ -762,6 +765,7 @@ export interface ModelSettingForm {
     /** @minLength 1 */
     site_name: string
     tls?: boolean
+    theme_config?: ThemeConfig
     user_template?: string
     /** 前端真实IP */
     web_real_ip_header?: string

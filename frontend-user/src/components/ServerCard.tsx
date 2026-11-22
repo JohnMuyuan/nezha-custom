@@ -3,6 +3,10 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import ServerFlag from "@/components/ServerFlag";
 import ServerUsageBar from "@/components/ServerUsageBar";
+import { CardTrafficBar } from "@/features/theme-custom/CardTrafficBar";
+import { RemainingValueBadge } from "@/features/theme-custom/RemainingValueBadge";
+import { useThemeConfig } from "@/features/theme-custom/theme-config";
+import { CardPingBoard } from "@/features/theme-custom/TriNetworkPing";
 import { formatBytes } from "@/lib/format";
 import {
 	GetFontLogoClass,
@@ -55,6 +59,7 @@ function ServerCard({
 		showNetTransfer,
 		fixedTopServerName,
 	} = useRuntimeConfig();
+	const { traffic_bar } = useThemeConfig();
 
 	const parsedData = parsePublicNote(public_note);
 
@@ -117,7 +122,7 @@ function ServerCard({
 			>
 				{parsedData?.billingDataMod && <BillingInfo parsedData={parsedData} />}
 			</div>
-			<div className="flex flex-col lg:items-start items-center gap-2">
+			<div className="flex w-full flex-col items-center gap-2 lg:items-start">
 				<section
 					className={cn("grid grid-cols-5 items-center gap-3", {
 						"lg:grid-cols-6 lg:gap-4": fixedTopServerName,
@@ -198,6 +203,9 @@ function ServerCard({
 						</div>
 					</div>
 				</section>
+				{!traffic_bar.insert_after && (
+					<CardTrafficBar serverId={serverInfo.id} />
+				)}
 				{showNetTransfer && (
 					<section className={"flex items-center w-full justify-between gap-1"}>
 						<Badge
@@ -214,7 +222,17 @@ function ServerCard({
 						</Badge>
 					</section>
 				)}
-				{parsedData?.planDataMod && <PlanInfo parsedData={parsedData} />}
+				{traffic_bar.insert_after && (
+					<CardTrafficBar serverId={serverInfo.id} />
+				)}
+				{parsedData?.planDataMod ? (
+					<PlanInfo parsedData={parsedData} server={serverInfo} />
+				) : parsedData?.billingDataMod ? (
+					<section className="flex gap-1 items-center flex-wrap mt-0.5">
+						<RemainingValueBadge server={serverInfo} parsedData={parsedData} />
+					</section>
+				) : null}
+				<CardPingBoard serverId={serverInfo.id} />
 			</div>
 		</Card>
 	) : (
@@ -279,7 +297,14 @@ function ServerCard({
 			>
 				{parsedData?.billingDataMod && <BillingInfo parsedData={parsedData} />}
 			</div>
-			{parsedData?.planDataMod && <PlanInfo parsedData={parsedData} />}
+			{parsedData?.planDataMod ? (
+				<PlanInfo parsedData={parsedData} server={serverInfo} />
+			) : parsedData?.billingDataMod ? (
+				<section className="flex gap-1 items-center flex-wrap mt-0.5">
+					<RemainingValueBadge server={serverInfo} parsedData={parsedData} />
+				</section>
+			) : null}
+			<CardTrafficBar serverId={serverInfo.id} />
 		</Card>
 	);
 }

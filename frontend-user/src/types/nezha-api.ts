@@ -1,3 +1,5 @@
+import type { ThemeConfig } from "@/features/theme-custom/theme-config";
+
 export interface NezhaWebsocketResponse {
 	now: number;
 	online?: number;
@@ -157,6 +159,7 @@ type SettingConfig = {
 	user_template: string;
 	admin_template: string;
 	custom_code: string;
+	theme_config?: Partial<ThemeConfig>;
 };
 
 export interface SettingResponse {

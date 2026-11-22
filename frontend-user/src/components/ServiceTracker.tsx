@@ -2,6 +2,7 @@ import { ExclamationTriangleIcon } from "@heroicons/react/20/solid";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useThemeConfig } from "@/features/theme-custom/theme-config";
 import { fetchService } from "@/lib/nezha-api";
 import type { NezhaServer, ServiceData } from "@/types/nezha-api";
 
@@ -37,6 +38,7 @@ function processServiceData(serviceData: ServiceData) {
 
 export function ServiceTracker({ serverList }: { serverList: NezhaServer[] }) {
 	const { t } = useTranslation();
+	const { traffic_bar } = useThemeConfig();
 	const { data: serviceData, isLoading } = useQuery({
 		queryKey: ["service"],
 		queryFn: () => fetchService(),
@@ -77,9 +79,12 @@ export function ServiceTracker({ serverList }: { serverList: NezhaServer[] }) {
 		);
 	}
 
+	const hideLegacyCycleBox =
+		traffic_bar.enabled && traffic_bar.hide_legacy_cycle_box;
+
 	return (
 		<div className="mt-4 w-full mx-auto ">
-			{serviceData.data.cycle_transfer_stats && (
+			{serviceData.data.cycle_transfer_stats && !hideLegacyCycleBox && (
 				<div>
 					<CycleTransferStatsCard
 						serverList={serverList}

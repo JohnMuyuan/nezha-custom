@@ -396,5 +396,30 @@
             "expired": "已过期",
             "unavailable": "不可用"
         }
+    },
+    "ThemeStudio": {
+        "Tab": "主题增强",
+        "Title": "主题增强可视化配置",
+        "Description": "所有自定义增强功能已原生内置并持久化至后端配置，无需手写 HTML/JS 自定义代码即可按需开关与调参。",
+        "EnabledCount": "已启用 {{count}} / {{total}} 项",
+        "EnableAll": "全部开启",
+        "DisableAll": "全部关闭",
+        "ResetDefaults": "恢复默认",
+        "ResetHint": "已恢复默认配置，点击保存后生效",
+        "Saving": "保存中...",
+        "SaveChanges": "保存主题增强配置",
+        "BannerTitle": "✨ 已内置主题增强可视化配置",
+        "BannerDesc": "流量进度条、剩余价值、资产统计、交易助手、3D 地球、三网延迟、续费日历、问候语等均可在可视化页面按需开关。",
+        "BannerAction": "打开主题增强设置",
+        "Sections": {
+            "Appearance": "外观、字体与全局布局",
+            "AppearanceDesc": "对应副标题、背景图与模糊效果、自定义字体、导航栏链接以及卡片基础展示行为。"
+        },
+        "Fields": {
+            "CustomDesc": "左上角站点副标题",
+            "CustomLogo": "自定义 Logo 地址",
+            "BackgroundImage": "桌面端背景图 URL",
+            "MobileBackgroundImage": "移动端背景图 URL（可选）"
+        }
     }
 }

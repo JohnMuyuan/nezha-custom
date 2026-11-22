@@ -38,10 +38,11 @@ const (
 )
 
 type ConfigForGuests struct {
-	Language            string `koanf:"language" json:"language"` // 系统语言，默认 zh_CN
-	SiteName            string `koanf:"site_name" json:"site_name"`
-	CustomCode          string `koanf:"custom_code" json:"custom_code,omitempty"`
-	CustomCodeDashboard string `koanf:"custom_code_dashboard" json:"custom_code_dashboard,omitempty"`
+	Language            string       `koanf:"language" json:"language"` // 系统语言，默认 zh_CN
+	SiteName            string       `koanf:"site_name" json:"site_name"`
+	CustomCode          string       `koanf:"custom_code" json:"custom_code,omitempty"`
+	CustomCodeDashboard string       `koanf:"custom_code_dashboard" json:"custom_code_dashboard,omitempty"`
+	ThemeConfig         *ThemeConfig `koanf:"theme_config" json:"theme_config,omitempty"`
 }
 
 type ConfigDashboard struct {

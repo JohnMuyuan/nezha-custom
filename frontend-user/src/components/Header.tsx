@@ -7,6 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { ModeToggle } from "@/components/ThemeSwitcher";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { GreetingOverview } from "@/features/theme-custom/GreetingOverview";
+import { useThemeConfig } from "@/features/theme-custom/theme-config";
 import { useBackground } from "@/hooks/use-background";
 import { useLoginUser } from "@/hooks/use-login-user";
 import { useWebSocketContext } from "@/hooks/use-websocket-context";
@@ -329,6 +331,7 @@ function DashboardLink() {
 
 function Overview({ loading }: { loading: boolean }) {
 	const { t } = useTranslation();
+	const { greeting } = useThemeConfig();
 	const time = useCurrentTime();
 	const [mounted, setMounted] = useState(false);
 
@@ -350,7 +353,11 @@ function Overview({ loading }: { loading: boolean }) {
 
 	return (
 		<section className={"mt-10 flex flex-col md:mt-16 header-timer"}>
-			<p className="text-base font-semibold">👋 {t("overview")}</p>
+			{greeting.enabled && (greeting.show_greeting || greeting.show_uptime) ? (
+				<GreetingOverview />
+			) : (
+				<p className="text-base font-semibold">👋 {t("overview")}</p>
+			)}
 			<div className="flex items-center gap-1">
 				<p className="text-sm font-medium opacity-50">{t("whereTheTimeIs")}</p>
 				{mounted ? (

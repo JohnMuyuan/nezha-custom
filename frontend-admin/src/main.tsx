@@ -32,6 +32,7 @@ import UserPage from "./routes/user"
 import WAFPage from "./routes/waf"
 import ApiTokensPage from "./routes/api-tokens"
 import FrontendsPage from "./routes/frontends"
+import ThemeCustomPage from "./routes/theme-custom"
 import MCPOAuthAuthorizePage from "./routes/mcp-oauth-authorize"
 import MCPOAuthManagementPage from "./routes/mcp-oauth-management"
 
@@ -139,6 +140,10 @@ const router = createBrowserRouter([
                         <SettingsPage />
                     </NotificationProvider>
                 ),
+            },
+            {
+                path: "/dashboard/settings/theme-custom",
+                element: <ThemeCustomPage />,
             },
             {
                 path: "/dashboard/settings/frontends",
