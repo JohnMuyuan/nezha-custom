@@ -135,3 +135,13 @@ func TestShouldScheduleInspection(t *testing.T) {
 	// Disabled (interval=0) -> never auto-scheduled
 	require.False(t, shouldScheduleInspection(time.Time{}, now, 0))
 }
+
+func TestIsMainlandChinaServer(t *testing.T) {
+	require.True(t, IsMainlandChinaServer(&model.Server{GeoIP: &model.GeoIP{CountryCode: "CN"}}))
+	require.True(t, IsMainlandChinaServer(&model.Server{GeoIP: &model.GeoIP{CountryCode: "cn"}}))
+	require.False(t, IsMainlandChinaServer(&model.Server{GeoIP: &model.GeoIP{CountryCode: "HK"}}))
+	require.False(t, IsMainlandChinaServer(&model.Server{GeoIP: &model.GeoIP{CountryCode: "TW"}}))
+	require.False(t, IsMainlandChinaServer(&model.Server{GeoIP: &model.GeoIP{CountryCode: "US"}}))
+	require.False(t, IsMainlandChinaServer(&model.Server{}))
+	require.False(t, IsMainlandChinaServer(nil))
+}

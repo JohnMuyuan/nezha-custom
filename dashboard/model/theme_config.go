@@ -118,6 +118,7 @@ type ThemeMediaUnlockConfig struct {
 	CheckIPv6         bool     `koanf:"check_ipv6" json:"check_ipv6"`
 	CheckBackhaul     bool     `koanf:"check_backhaul" json:"check_backhaul"`
 	CheckIPQuality    bool     `koanf:"check_ip_quality" json:"check_ip_quality"`
+	SkipChinaMainland bool     `koanf:"skip_china_mainland" json:"skip_china_mainland"`
 	Platforms         []string `koanf:"platforms" json:"platforms"`
 }
 
@@ -231,6 +232,7 @@ func DefaultThemeConfig() *ThemeConfig {
 			CheckIPv6:         true,
 			CheckBackhaul:     true,
 			CheckIPQuality:    true,
+			SkipChinaMainland: true,
 			Platforms:         append([]string(nil), DefaultMediaUnlockPlatforms...),
 		},
 		ExpiryNotify: ThemeExpiryNotifyConfig{

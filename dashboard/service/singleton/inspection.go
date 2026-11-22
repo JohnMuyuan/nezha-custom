@@ -100,7 +100,38 @@ func decodeInspectionRow(row *model.ServerInspection) *model.ServerInspectionPay
 	return p
 }
 
+// IsMainlandChinaServer returns true when the server's GeoIP country code is CN
+// (Mainland China). Hong Kong (HK), Macau (MO), and Taiwan (TW) are NOT skipped.
+func IsMainlandChinaServer(server *model.Server) bool {
+	if server == nil || server.GeoIP == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(server.GeoIP.CountryCode), "cn")
+}
+
+func (ic *InspectionClass) shouldSkipServer(server *model.Server) bool {
+	if server == nil {
+		return true
+	}
+	skipCN := true
+	if Conf != nil {
+		snap := Conf.SettingsSnapshot()
+		if snap.ThemeConfig != nil {
+			skipCN = snap.ThemeConfig.MediaUnlock.SkipChinaMainland
+		}
+	}
+	return skipCN && IsMainlandChinaServer(server)
+}
+
 func (ic *InspectionClass) Get(serverID uint64) *model.ServerInspectionPayload {
+	if ServerShared != nil {
+		if srv, ok := ServerShared.Get(serverID); ok && ic.shouldSkipServer(srv) {
+			return &model.ServerInspectionPayload{
+				ServerID: serverID,
+				Running:  false,
+			}
+		}
+	}
 	ic.mu.RLock()
 	defer ic.mu.RUnlock()
 	existing := ic.cache[serverID]
@@ -124,6 +155,11 @@ func (ic *InspectionClass) ListSummaries(allowedIDs map[uint64]struct{}) map[uin
 	for sid, payload := range ic.cache {
 		if allowedIDs != nil {
 			if _, ok := allowedIDs[sid]; !ok {
+				continue
+			}
+		}
+		if ServerShared != nil {
+			if srv, ok := ServerShared.Get(sid); ok && ic.shouldSkipServer(srv) {
 				continue
 			}
 		}
@@ -295,6 +331,9 @@ func (ic *InspectionClass) TriggerServer(serverID uint64, scopes []string) error
 	if !ok || server == nil {
 		return errors.New("server not found")
 	}
+	if ic.shouldSkipServer(server) {
+		return errors.New("中国大陆节点已自动排除在流媒体/回程体检之外")
+	}
 	if server.GetTaskStream() == nil {
 		return errors.New("server agent is offline")
 	}
@@ -318,7 +357,7 @@ func (ic *InspectionClass) TriggerAllOnline(scopes []string) int {
 	}
 	count := 0
 	for _, server := range ServerShared.Range {
-		if server == nil || server.GetTaskStream() == nil {
+		if server == nil || server.GetTaskStream() == nil || ic.shouldSkipServer(server) {
 			continue
 		}
 		if err := ic.TriggerServer(server.ID, scopes); err == nil {
@@ -366,7 +405,7 @@ func (ic *InspectionClass) RunScheduledChecks() {
 	now := time.Now()
 	queued := 0
 	for _, server := range ServerShared.Range {
-		if server == nil || server.GetTaskStream() == nil {
+		if server == nil || server.GetTaskStream() == nil || ic.shouldSkipServer(server) {
 			continue
 		}
 		cur := ic.Get(server.ID)
@@ -572,15 +611,38 @@ run_stack() {
 	}
 	if enabled["disney"] {
 		b.WriteString(`
-  # Disney+
-  DP=$(curl $FLAG -sSL -A "$UA" --connect-timeout 4 --max-time 6 "https://www.disneyplus.com/" 2>/dev/null)
-  if echo "$DP" | grep -qi "unavailable\|sorry, disney+ is not available"; then
-    echo "MEDIA|$IPVER|disney|no|"
-  elif echo "$DP" | grep -qi "disney"; then
-    DPREG=$(echo "$DP" | grep -oE '"countryCode":"[A-Z]{2}"' | head -n 1 | cut -d'"' -f4)
-    echo "MEDIA|$IPVER|disney|yes|$DPREG"
+  # Disney+ (BAMGrid GraphQL registerDevice + edge HTTP status)
+  DP_GQL=$(curl $FLAG -sS --connect-timeout 4 --max-time 6 "https://disney.api.edge.bamgrid.com/graph/v1/device/graphql" \
+    -H "authorization: Bearer ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84" \
+    -H "content-type: application/json" -A "$UA" \
+    -d '{"query":"mutation registerDevice($input: RegisterDeviceInput!) { registerDevice(registerDevice: $input) { grant { grantType assertion } } }","variables":{"input":{"applicationRuntime":"chrome","attributes":{"browserName":"chrome","browserVersion":"126.0.0","manufacturer":"microsoft","model":null,"operatingSystem":"windows","operatingSystemVersion":"10.0","osDeviceIds":[]},"deviceFamily":"browser","deviceLanguage":"en","deviceProfile":"windows"}}}' 2>/dev/null)
+  DPREG=$(echo "$DP_GQL" | grep -oE '"countryCode":"[A-Z]{2}"' | head -n 1 | cut -d'"' -f4)
+  if echo "$DP_GQL" | grep -q '"inSupportedLocation":true'; then
+    DP_CODE=$(curl $FLAG -sS -o /dev/null -w "%{http_code}" -A "$UA" --connect-timeout 4 --max-time 6 "https://www.disneyplus.com/" 2>/dev/null)
+    if [ "$DP_CODE" = "403" ] || [ "$DP_CODE" = "451" ]; then
+      echo "MEDIA|$IPVER|disney|no|$DPREG"
+    else
+      echo "MEDIA|$IPVER|disney|yes|$DPREG"
+    fi
+  elif echo "$DP_GQL" | grep -q '"inSupportedLocation":false'; then
+    echo "MEDIA|$IPVER|disney|no|$DPREG"
   else
-    echo "MEDIA|$IPVER|disney|no|"
+    DP_HDR=$(curl $FLAG -sSI -A "$UA" --connect-timeout 4 --max-time 6 "https://www.disneyplus.com/" 2>/dev/null)
+    DP_CODE=$(echo "$DP_HDR" | head -n 1 | awk '{print $2}')
+    DP_LOC=$(echo "$DP_HDR" | grep -i "^location:" | head -n 1)
+    DP_HREG=$(echo "$DP_HDR" | grep -i "^physical-location:" | head -n 1 | awk '{print $2}' | tr -d '\r' | tr 'a-z' 'A-Z')
+    [ -z "$DP_HREG" ] && DP_HREG=$(echo "$DP_HDR" | grep -i "^region:" | head -n 1 | awk '{print $2}' | tr -d '\r' | tr 'a-z' 'A-Z')
+    if echo "$DP_LOC" | grep -qi "unavailable\|sorry"; then
+      echo "MEDIA|$IPVER|disney|no|$DP_HREG"
+    elif [ "$DP_CODE" = "200" ] || [ "$DP_CODE" = "302" ] || [ "$DP_CODE" = "301" ]; then
+      if [ -n "$DP_HREG" ]; then
+        echo "MEDIA|$IPVER|disney|yes|$DP_HREG"
+      else
+        echo "MEDIA|$IPVER|disney|no|"
+      fi
+    else
+      echo "MEDIA|$IPVER|disney|no|"
+    fi
   fi
 `)
 	}

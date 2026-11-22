@@ -108,6 +108,7 @@ export interface ThemeMediaUnlockConfig {
     check_ipv6: boolean
     check_backhaul: boolean
     check_ip_quality: boolean
+    skip_china_mainland: boolean
     platforms: string[]
 }
 
@@ -228,6 +229,7 @@ export const DEFAULT_THEME_CONFIG: ThemeConfig = {
         check_ipv6: true,
         check_backhaul: true,
         check_ip_quality: true,
+        skip_china_mainland: true,
         platforms: [...DEFAULT_MEDIA_PLATFORMS],
     },
     expiry_notify: {

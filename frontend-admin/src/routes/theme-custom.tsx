@@ -1337,6 +1337,17 @@ export default function ThemeCustomPage() {
                                     updateSection("media_unlock", { check_ip_quality: checked })
                                 }
                             />
+                            <SwitchRow
+                                id={fieldId("media_skip_cn")}
+                                label="自动排除中国大陆（CN）节点"
+                                description="中国大陆机器跳过流媒体/回程/IP 体检并隐藏详情页该分区（港澳台与海外正常检测）"
+                                checked={themeConfig.media_unlock.skip_china_mainland}
+                                onCheckedChange={(checked) =>
+                                    updateSection("media_unlock", {
+                                        skip_china_mainland: checked,
+                                    })
+                                }
+                            />
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-2">

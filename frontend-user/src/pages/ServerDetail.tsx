@@ -47,23 +47,33 @@ export default function ServerDetail() {
 		window.scrollTo({ top: 0, left: 0, behavior: "instant" });
 	}, []);
 
+	const { id: server_id } = useParams();
+	const numericServerId = Number(server_id);
+	const activeServer = lastData?.servers?.find((s) => s.id === numericServerId);
+	const isMainlandChina =
+		activeServer?.country_code?.trim().toUpperCase() === "CN";
+	const showUnlockTab =
+		media_unlock.enabled &&
+		!(media_unlock.skip_china_mainland && isMainlandChina);
+
 	const tabs = useMemo(
 		() =>
-			media_unlock.enabled
+			showUnlockTab
 				? ["Detail", "Network", "Online", "Unlock"]
 				: ["Detail", "Network", "Online"],
-		[media_unlock.enabled],
+		[showUnlockTab],
 	);
 	const [currentTab, setCurrentTab] = useState("Detail");
 
-	const { id: server_id } = useParams();
+	useEffect(() => {
+		if (!showUnlockTab && currentTab === "Unlock") {
+			setCurrentTab("Detail");
+		}
+	}, [showUnlockTab, currentTab]);
 
 	if (!server_id) {
 		return <Navigate to="/404" replace />;
 	}
-
-	const numericServerId = Number(server_id);
-	const activeServer = lastData?.servers?.find((s) => s.id === numericServerId);
 
 	return (
 		<div className="mx-auto w-full max-w-5xl px-0 flex flex-col gap-4 server-info">
@@ -119,7 +129,7 @@ export default function ServerDetail() {
 					title={t("error.chartFailed")}
 				/>
 			)}
-			{currentTab === "Unlock" && media_unlock.enabled && (
+			{currentTab === "Unlock" && showUnlockTab && (
 				<RetryableLazy
 					load={loadServerInspectionTab}
 					componentProps={{ server_id: numericServerId }}
