@@ -1,8 +1,14 @@
+import { useQuery } from "@tanstack/react-query";
 import { Copy, DollarSign, Edit2, ShoppingCart, Trash2, X } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { NezhaServer } from "@/types/nezha-api";
 import { CustomModalDialog } from "./CustomModalDialog";
+import {
+	fetchAllInspections,
+	summarizeBackhaulRoutes,
+	summarizeUnlockedMedia,
+} from "./inspection-api";
 import {
 	CURRENCY_SYMBOLS,
 	type CurrencyCode,
@@ -259,6 +265,14 @@ export function TradeCalculatorModal({
 		rates,
 	]);
 
+	const { data: inspectionMap } = useQuery({
+		queryKey: ["server-inspections"],
+		queryFn: fetchAllInspections,
+		enabled: open,
+		staleTime: 60_000,
+		retry: false,
+	});
+
 	const handleSelectSellServer = (val: string) => {
 		setSelectedServerId(val);
 		const found = parsedServers.find((s) => String(s.serverId) === val);
@@ -273,7 +287,15 @@ export function TradeCalculatorModal({
 		setFReg(found.countryCode || "");
 		setFBw(found.bandwidth || "");
 		setFTr(found.trafficVol || "");
-		setFRt(found.routing || "无优化");
+		const insp = inspectionMap?.[String(found.serverId)];
+		const routeHint = summarizeBackhaulRoutes(insp);
+		const unlockHint = summarizeUnlockedMedia(insp);
+		setFRt(found.routing || routeHint || "无优化");
+		if (unlockHint) {
+			setFNt((prev) =>
+				prev.includes("流媒体解锁") ? prev : `流媒体解锁: ${unlockHint}`,
+			);
+		}
 		setFV4(found.ipv4);
 		setFV6(found.ipv6);
 	};

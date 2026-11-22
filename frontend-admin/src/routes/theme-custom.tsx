@@ -1,4 +1,4 @@
-import { updateSettings } from "@/api/settings"
+import { runAllInspections, testExpiryNotification, updateSettings } from "@/api/settings"
 import { SettingsTab } from "@/components/settings-tab"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,9 +16,11 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/hooks/useAuth"
+import { useNotification } from "@/hooks/useNotfication"
 import useSetting from "@/hooks/useSetting"
 import {
     DEFAULT_CN_HOLIDAYS,
+    DEFAULT_MEDIA_PLATFORMS,
     DEFAULT_THEME_CONFIG,
     type ThemeConfig,
     mergeThemeConfig,
@@ -26,19 +28,24 @@ import {
 import {
     Activity,
     BarChart3,
+    BellRing,
     Calculator,
     CalendarClock,
+    Filter,
     Globe2,
     LayoutGrid,
     MessageSquareHeart,
     Palette,
+    Play,
     Plus,
     RotateCcw,
     Save,
+    Send,
     Sparkles,
     Sun,
     Tag,
     Trash2,
+    Tv,
     Wallet,
 } from "lucide-react"
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react"
@@ -70,10 +77,25 @@ function SwitchRow({ id, label, description, checked, onCheckedChange }: SwitchR
     )
 }
 
+const MEDIA_PLATFORM_OPTIONS: Array<{ id: string; label: string; group: string }> = [
+    { id: "netflix", label: "Netflix", group: "流媒体" },
+    { id: "disney", label: "Disney+", group: "流媒体" },
+    { id: "youtube", label: "YouTube Premium", group: "流媒体" },
+    { id: "tiktok", label: "TikTok", group: "流媒体" },
+    { id: "spotify", label: "Spotify", group: "流媒体" },
+    { id: "prime", label: "Prime Video", group: "流媒体" },
+    { id: "hbo", label: "Max (HBO)", group: "流媒体" },
+    { id: "bilibili", label: "Bilibili", group: "流媒体" },
+    { id: "chatgpt", label: "ChatGPT / OpenAI", group: "AI" },
+    { id: "claude", label: "Claude", group: "AI" },
+    { id: "gemini", label: "Google Gemini", group: "AI" },
+]
+
 export default function ThemeCustomPage() {
     const { t } = useTranslation()
     const { data: settingResp, mutate } = useSetting()
     const { profile, loading: authLoading } = useAuth()
+    const { notifierGroup } = useNotification()
     const idPrefix = useId()
     const fieldId = (name: string) => `${idPrefix}-${name}`
 
@@ -83,6 +105,8 @@ export default function ThemeCustomPage() {
         mergeThemeConfig(settingResp?.config?.theme_config),
     )
     const [saving, setSaving] = useState(false)
+    const [runningInspect, setRunningInspect] = useState(false)
+    const [testingExpiry, setTestingExpiry] = useState(false)
 
     useEffect(() => {
         if (settingResp?.config) {
@@ -102,6 +126,10 @@ export default function ThemeCustomPage() {
             themeConfig.traffic_stats.enabled,
             themeConfig.greeting.enabled,
             themeConfig.renewal_calendar.enabled,
+            themeConfig.media_unlock.enabled,
+            themeConfig.expiry_notify.enabled,
+            themeConfig.showcase_card.enabled,
+            themeConfig.filter_bar.enabled,
         ]
         return flags.filter(Boolean).length
     }, [themeConfig])
@@ -140,7 +168,47 @@ export default function ThemeCustomPage() {
             greeting: { ...prev.greeting, enabled },
             renewal_calendar: { ...prev.renewal_calendar, enabled },
             dock: { ...prev.dock, enabled },
+            media_unlock: { ...prev.media_unlock, enabled },
+            showcase_card: { ...prev.showcase_card, enabled },
+            filter_bar: { ...prev.filter_bar, enabled },
         }))
+    }
+
+    const handleToggleMediaPlatform = (platformId: string) => {
+        const current = themeConfig.media_unlock.platforms
+        const exists = current.includes(platformId)
+        const next = exists ? current.filter((p) => p !== platformId) : [...current, platformId]
+        updateSection("media_unlock", {
+            platforms: next.length > 0 ? next : [...DEFAULT_MEDIA_PLATFORMS],
+        })
+    }
+
+    const handleRunAllInspections = async () => {
+        setRunningInspect(true)
+        try {
+            const res = await runAllInspections()
+            toast.success(`已向 ${res.queued} 台在线节点下发错峰体检任务（流媒体 / 回程 / IP）`)
+        } catch (err) {
+            toast.error("触发全量体检失败", { description: String(err) })
+        } finally {
+            setRunningInspect(false)
+        }
+    }
+
+    const handleTestExpiryNotify = async () => {
+        setTestingExpiry(true)
+        try {
+            const res = await testExpiryNotification()
+            toast.success(
+                res.matched > 0
+                    ? `已推送 ${res.matched} 台临期服务器提醒至通知组`
+                    : "已发送测试通知，当前无临期服务器",
+            )
+        } catch (err) {
+            toast.error("发送测试提醒失败", { description: String(err) })
+        } finally {
+            setTestingExpiry(false)
+        }
     }
 
     const handleResetDefaults = () => {
@@ -247,8 +315,8 @@ export default function ThemeCustomPage() {
                                 <Badge variant="secondary">
                                     {t("ThemeStudio.EnabledCount", {
                                         count: enabledModuleCount,
-                                        total: 10,
-                                        defaultValue: `已启用 ${enabledModuleCount} / 10 项`,
+                                        total: 14,
+                                        defaultValue: `已启用 ${enabledModuleCount} / 14 项`,
                                     })}
                                 </Badge>
                             </div>
@@ -1204,6 +1272,272 @@ export default function ThemeCustomPage() {
                                     />
                                 </div>
                             </div>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* 12. 流媒体解锁、三网回程与 IP 体检 */}
+                <Card>
+                    <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <CardTitle className="flex items-center gap-2 text-base">
+                                <Tv className="h-4 w-4 text-primary" />
+                                流媒体 & AI 解锁、三网回程与 IP 体检（详情页独立分区）
+                            </CardTitle>
+                            <CardDescription>
+                                复用原生 Agent 命令通道错峰执行轻量检测，结果存入后端 SQLite；不点开详情页分区时不消耗前端资源。
+                            </CardDescription>
+                        </div>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={runningInspect}
+                            onClick={handleRunAllInspections}
+                        >
+                            <Play className="mr-1.5 h-3.5 w-3.5" />
+                            {runningInspect ? "下发中..." : "立即全量体检所有在线节点"}
+                        </Button>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <SwitchRow
+                                id={fieldId("media_enabled")}
+                                label="开启详情页「流媒体 & 体检」独立分区"
+                                description="在前台服务器详情页新增第 4 个选项卡并启用体检接口"
+                                checked={themeConfig.media_unlock.enabled}
+                                onCheckedChange={(checked) =>
+                                    updateSection("media_unlock", { enabled: checked })
+                                }
+                            />
+                            <SwitchRow
+                                id={fieldId("media_ipv6")}
+                                label="同时检测 IPv6 双栈解锁能力"
+                                description="自动探测节点是否具备 IPv6 出口并分别展示"
+                                checked={themeConfig.media_unlock.check_ipv6}
+                                onCheckedChange={(checked) =>
+                                    updateSection("media_unlock", { check_ipv6: checked })
+                                }
+                            />
+                            <SwitchRow
+                                id={fieldId("media_backhaul")}
+                                label="包含三网回程路由简报"
+                                description="自动识别电信 CN2 GIA/GT/163、联通 9929/4837、移动 CMIN2/CMI"
+                                checked={themeConfig.media_unlock.check_backhaul}
+                                onCheckedChange={(checked) =>
+                                    updateSection("media_unlock", { check_backhaul: checked })
+                                }
+                            />
+                            <SwitchRow
+                                id={fieldId("media_ipq")}
+                                label="包含 IP 质量、Google 送中、25 端口与黑名单体检"
+                                description="展示 ASN/机房或家宽参考、风控评级、SMTP 25 端口通断"
+                                checked={themeConfig.media_unlock.check_ip_quality}
+                                onCheckedChange={(checked) =>
+                                    updateSection("media_unlock", { check_ip_quality: checked })
+                                }
+                            />
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                                <Label htmlFor={fieldId("media_interval")}>自动定时检测周期</Label>
+                                <Select
+                                    value={String(themeConfig.media_unlock.auto_interval_hours)}
+                                    onValueChange={(v) =>
+                                        updateSection("media_unlock", {
+                                            auto_interval_hours: Number(v),
+                                        })
+                                    }
+                                >
+                                    <SelectTrigger id={fieldId("media_interval")}>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="0">仅手动触发（不自动轮询）</SelectItem>
+                                        <SelectItem value="6">每 6 小时自动体检</SelectItem>
+                                        <SelectItem value="12">每 12 小时自动体检</SelectItem>
+                                        <SelectItem value="24">每 24 小时自动体检（推荐）</SelectItem>
+                                        <SelectItem value="72">每 3 天自动体检</SelectItem>
+                                        <SelectItem value="168">每 7 天自动体检</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor={fieldId("media_conc")}>
+                                    最大并发体检节点数（保护低配面板，推荐 2）
+                                </Label>
+                                <Input
+                                    id={fieldId("media_conc")}
+                                    type="number"
+                                    min={1}
+                                    max={5}
+                                    value={themeConfig.media_unlock.max_concurrency}
+                                    onChange={(e) =>
+                                        updateSection("media_unlock", {
+                                            max_concurrency: Math.min(
+                                                5,
+                                                Math.max(1, Number(e.target.value) || 2),
+                                            ),
+                                        })
+                                    }
+                                />
+                            </div>
+                        </div>
+
+                        <fieldset className="space-y-2 rounded-lg border p-3">
+                            <legend className="px-1 text-xs font-medium text-muted-foreground">
+                                勾选需要检测的流媒体与 AI 平台
+                            </legend>
+                            <div className="flex flex-wrap gap-2">
+                                {MEDIA_PLATFORM_OPTIONS.map((item) => {
+                                    const active = themeConfig.media_unlock.platforms.includes(
+                                        item.id,
+                                    )
+                                    return (
+                                        <Button
+                                            key={item.id}
+                                            type="button"
+                                            size="sm"
+                                            variant={active ? "default" : "outline"}
+                                            onClick={() => handleToggleMediaPlatform(item.id)}
+                                            className="h-7 text-xs"
+                                        >
+                                            {item.label}
+                                        </Button>
+                                    )
+                                })}
+                            </div>
+                        </fieldset>
+                    </CardContent>
+                </Card>
+
+                {/* 13. 机器到期自动推送通知 & 14. 测评卡片与多维筛选 */}
+                <div className="grid gap-6 lg:grid-cols-2">
+                    <Card>
+                        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2 text-base">
+                                    <BellRing className="h-4 w-4 text-primary" />
+                                    机器到期自动推送通知
+                                </CardTitle>
+                                <CardDescription>
+                                    每日定时扫描服务器账单日期，临期直接复用哪吒通知组（TG / 邮件 / Webhook）推送。
+                                </CardDescription>
+                            </div>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={testingExpiry}
+                                onClick={handleTestExpiryNotify}
+                            >
+                                <Send className="mr-1.5 h-3.5 w-3.5" />
+                                {testingExpiry ? "推送中..." : "立即扫描/测试"}
+                            </Button>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            <SwitchRow
+                                id={fieldId("exp_notify_enabled")}
+                                label="开启后端到期自动通知"
+                                description="无需打开网页，到期前自动发消息提醒续费"
+                                checked={themeConfig.expiry_notify.enabled}
+                                onCheckedChange={(checked) =>
+                                    updateSection("expiry_notify", { enabled: checked })
+                                }
+                            />
+                            <div className="space-y-1.5">
+                                <Label htmlFor={fieldId("exp_notify_group")}>推送通知组</Label>
+                                <Select
+                                    value={String(themeConfig.expiry_notify.notification_group_id || 0)}
+                                    onValueChange={(v) =>
+                                        updateSection("expiry_notify", {
+                                            notification_group_id: Number(v) || 0,
+                                        })
+                                    }
+                                >
+                                    <SelectTrigger id={fieldId("exp_notify_group")}>
+                                        <SelectValue placeholder="请选择通知组" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="0">-- 未选择通知组 --</SelectItem>
+                                        {(notifierGroup ?? []).map((ng) => (
+                                            <SelectItem key={ng.group.id} value={String(ng.group.id)}>
+                                                {ng.group.name} (ID: {ng.group.id})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <Label htmlFor={fieldId("exp_alert_days")}>
+                                        提前提醒天数（逗号分隔）
+                                    </Label>
+                                    <Input
+                                        id={fieldId("exp_alert_days")}
+                                        placeholder="7,3,1"
+                                        value={themeConfig.expiry_notify.alert_days}
+                                        onChange={(e) =>
+                                            updateSection("expiry_notify", {
+                                                alert_days: e.target.value,
+                                            })
+                                        }
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label htmlFor={fieldId("exp_check_hour")}>
+                                        每日检测时间（时）
+                                    </Label>
+                                    <Input
+                                        id={fieldId("exp_check_hour")}
+                                        type="number"
+                                        min={0}
+                                        max={23}
+                                        value={themeConfig.expiry_notify.check_hour}
+                                        onChange={(e) =>
+                                            updateSection("expiry_notify", {
+                                                check_hour: Math.min(
+                                                    23,
+                                                    Math.max(0, Number(e.target.value) || 0),
+                                                ),
+                                            })
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2 text-base">
+                                <Filter className="h-4 w-4 text-primary" />
+                                节点测评卡片 & 前台多维筛选
+                            </CardTitle>
+                            <CardDescription>
+                                详情页一键生成论坛 Markdown/高清图片测评卡，首页支持按解锁、到期、价格多维检索排序。
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            <SwitchRow
+                                id={fieldId("showcase_enabled")}
+                                label="开启详情页「生成测评/分享卡片」"
+                                description="一键汇总硬件、三网延迟、流媒体解锁、回程路由与剩余价值并支持导出 PNG 海报"
+                                checked={themeConfig.showcase_card.enabled}
+                                onCheckedChange={(checked) =>
+                                    updateSection("showcase_card", { enabled: checked })
+                                }
+                            />
+                            <SwitchRow
+                                id={fieldId("filter_bar_enabled")}
+                                label="开启首页多维筛选与快捷搜索栏"
+                                description="支持按名称/商家/线路检索，以及按 Netflix/Disney+/ChatGPT/Claude/Gemini 解锁、30天内到期、剩余价值排序"
+                                checked={themeConfig.filter_bar.enabled}
+                                onCheckedChange={(checked) =>
+                                    updateSection("filter_bar", { enabled: checked })
+                                }
+                            />
                         </CardContent>
                     </Card>
                 </div>

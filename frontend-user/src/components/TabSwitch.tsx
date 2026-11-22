@@ -59,7 +59,11 @@ export default function TabSwitch({
 						)}
 					>
 						<div className="relative z-20 flex items-center gap-1">
-							<p className="whitespace-nowrap">{t(`tabSwitch.${tab}`)}</p>
+							<p className="whitespace-nowrap">
+								{t(`tabSwitch.${tab}`, {
+									defaultValue: tab === "Unlock" ? "流媒体 & 体检" : tab,
+								})}
+							</p>
 						</div>
 					</div>
 				))}

@@ -183,6 +183,9 @@ func (s *NezhaHandler) RequestTask(stream pb.NezhaService_RequestTaskServer) err
 		}
 		switch result.GetType() {
 		case model.TaskTypeCommand:
+			if singleton.InspectionShared != nil && singleton.InspectionShared.HandleCommandResult(clientID, result) {
+				continue
+			}
 			// 处理上报的计划任务
 			cr, _ := singleton.CronShared.Get(result.GetId())
 			// 任务结果 ID 来自 agent，必须确认该 cron 本应派发给当前 reporter。

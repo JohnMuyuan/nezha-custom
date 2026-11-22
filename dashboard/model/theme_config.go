@@ -97,6 +97,45 @@ type ThemeDockConfig struct {
 	Position string `koanf:"position" json:"position"` // right | left
 }
 
+var DefaultMediaUnlockPlatforms = []string{
+	"netflix",
+	"disney",
+	"youtube",
+	"tiktok",
+	"spotify",
+	"prime",
+	"hbo",
+	"bilibili",
+	"chatgpt",
+	"claude",
+	"gemini",
+}
+
+type ThemeMediaUnlockConfig struct {
+	Enabled           bool     `koanf:"enabled" json:"enabled"`
+	AutoIntervalHours int      `koanf:"auto_interval_hours" json:"auto_interval_hours"`
+	MaxConcurrency    int      `koanf:"max_concurrency" json:"max_concurrency"`
+	CheckIPv6         bool     `koanf:"check_ipv6" json:"check_ipv6"`
+	CheckBackhaul     bool     `koanf:"check_backhaul" json:"check_backhaul"`
+	CheckIPQuality    bool     `koanf:"check_ip_quality" json:"check_ip_quality"`
+	Platforms         []string `koanf:"platforms" json:"platforms"`
+}
+
+type ThemeExpiryNotifyConfig struct {
+	Enabled             bool   `koanf:"enabled" json:"enabled"`
+	NotificationGroupID uint64 `koanf:"notification_group_id" json:"notification_group_id"`
+	AlertDays           string `koanf:"alert_days" json:"alert_days"`
+	CheckHour           int    `koanf:"check_hour" json:"check_hour"`
+}
+
+type ThemeShowcaseCardConfig struct {
+	Enabled bool `koanf:"enabled" json:"enabled"`
+}
+
+type ThemeFilterBarConfig struct {
+	Enabled bool `koanf:"enabled" json:"enabled"`
+}
+
 type ThemeConfig struct {
 	Appearance      ThemeAppearanceConfig      `koanf:"appearance" json:"appearance"`
 	TrafficBar      ThemeTrafficBarConfig      `koanf:"traffic_bar" json:"traffic_bar"`
@@ -110,6 +149,10 @@ type ThemeConfig struct {
 	Greeting        ThemeGreetingConfig        `koanf:"greeting" json:"greeting"`
 	RenewalCalendar ThemeRenewalCalendarConfig `koanf:"renewal_calendar" json:"renewal_calendar"`
 	Dock            ThemeDockConfig            `koanf:"dock" json:"dock"`
+	MediaUnlock     ThemeMediaUnlockConfig     `koanf:"media_unlock" json:"media_unlock"`
+	ExpiryNotify    ThemeExpiryNotifyConfig    `koanf:"expiry_notify" json:"expiry_notify"`
+	ShowcaseCard    ThemeShowcaseCardConfig    `koanf:"showcase_card" json:"showcase_card"`
+	FilterBar       ThemeFilterBarConfig       `koanf:"filter_bar" json:"filter_bar"`
 }
 
 func DefaultThemeConfig() *ThemeConfig {
@@ -181,6 +224,27 @@ func DefaultThemeConfig() *ThemeConfig {
 			Enabled:  true,
 			Position: "right",
 		},
+		MediaUnlock: ThemeMediaUnlockConfig{
+			Enabled:           true,
+			AutoIntervalHours: 24,
+			MaxConcurrency:    2,
+			CheckIPv6:         true,
+			CheckBackhaul:     true,
+			CheckIPQuality:    true,
+			Platforms:         append([]string(nil), DefaultMediaUnlockPlatforms...),
+		},
+		ExpiryNotify: ThemeExpiryNotifyConfig{
+			Enabled:             false,
+			NotificationGroupID: 0,
+			AlertDays:           "7,3,1",
+			CheckHour:           9,
+		},
+		ShowcaseCard: ThemeShowcaseCardConfig{
+			Enabled: true,
+		},
+		FilterBar: ThemeFilterBarConfig{
+			Enabled: true,
+		},
 	}
 }
 
@@ -193,7 +257,28 @@ func (tc *ThemeConfig) Clone() *ThemeConfig {
 		copied.Appearance.CustomLinks = make([]ThemeLink, len(tc.Appearance.CustomLinks))
 		copy(copied.Appearance.CustomLinks, tc.Appearance.CustomLinks)
 	}
+	if tc.MediaUnlock.Platforms != nil {
+		copied.MediaUnlock.Platforms = make([]string, len(tc.MediaUnlock.Platforms))
+		copy(copied.MediaUnlock.Platforms, tc.MediaUnlock.Platforms)
+	}
 	return &copied
+}
+
+// FillLegacyDefaults backfills newly introduced subsections with safe defaults
+// when loading an older config.yaml that predated those fields.
+func (tc *ThemeConfig) FillLegacyDefaults() {
+	if tc == nil {
+		return
+	}
+	if tc.MediaUnlock.MaxConcurrency <= 0 {
+		tc.MediaUnlock.MaxConcurrency = 2
+	}
+	if len(tc.MediaUnlock.Platforms) == 0 {
+		tc.MediaUnlock.Platforms = append([]string(nil), DefaultMediaUnlockPlatforms...)
+	}
+	if strings.TrimSpace(tc.ExpiryNotify.AlertDays) == "" {
+		tc.ExpiryNotify.AlertDays = "7,3,1"
+	}
 }
 
 func validateSafeWebURL(raw, field string) error {
@@ -297,6 +382,29 @@ func ValidateThemeConfig(tc *ThemeConfig) error {
 	case "", "right", "left":
 	default:
 		return fmt.Errorf("invalid theme_config.dock.position: %s", tc.Dock.Position)
+	}
+
+	// Media unlock & inspection
+	if tc.MediaUnlock.AutoIntervalHours < 0 || tc.MediaUnlock.AutoIntervalHours > 720 {
+		return fmt.Errorf("theme_config.media_unlock.auto_interval_hours must be between 0 and 720")
+	}
+	if tc.MediaUnlock.MaxConcurrency != 0 && (tc.MediaUnlock.MaxConcurrency < 1 || tc.MediaUnlock.MaxConcurrency > 5) {
+		return fmt.Errorf("theme_config.media_unlock.max_concurrency must be between 1 and 5")
+	}
+	allowedPlatforms := map[string]struct{}{
+		"netflix": {}, "disney": {}, "youtube": {}, "tiktok": {},
+		"spotify": {}, "prime": {}, "hbo": {}, "bilibili": {},
+		"chatgpt": {}, "claude": {}, "gemini": {},
+	}
+	for _, p := range tc.MediaUnlock.Platforms {
+		if _, ok := allowedPlatforms[strings.ToLower(strings.TrimSpace(p))]; !ok {
+			return fmt.Errorf("invalid theme_config.media_unlock.platforms entry: %s", p)
+		}
+	}
+
+	// Expiry notification
+	if tc.ExpiryNotify.CheckHour < 0 || tc.ExpiryNotify.CheckHour > 23 {
+		return fmt.Errorf("theme_config.expiry_notify.check_hour must be between 0 and 23")
 	}
 
 	return nil

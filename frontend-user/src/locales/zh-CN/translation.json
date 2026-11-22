@@ -121,7 +121,8 @@
 	"tabSwitch": {
 		"Detail": "详情",
 		"Network": "网络",
-		"Online": "在线"
+		"Online": "在线",
+		"Unlock": "流媒体 & 体检"
 	},
 	"monitor": {
 		"noData": "没有服务监控数据，请在管理后台服务页添加监控任务",

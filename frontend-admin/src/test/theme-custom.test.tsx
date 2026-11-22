@@ -28,6 +28,9 @@ const authState = vi.hoisted(() => ({
 vi.mock("@/hooks/useAuth", () => ({
     useAuth: () => authState,
 }))
+vi.mock("@/hooks/useNotfication", () => ({
+    useNotification: () => ({ notifierGroup: [] }),
+}))
 
 const settings = vi.hoisted(() => ({
     data: {

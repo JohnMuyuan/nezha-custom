@@ -127,6 +127,7 @@ func (c *ConfigClass) SettingsSnapshot() model.Setting {
 	guests := c.ConfigForGuests
 	if guests.ThemeConfig != nil {
 		guests.ThemeConfig = guests.ThemeConfig.Clone()
+		guests.ThemeConfig.FillLegacyDefaults()
 	} else {
 		guests.ThemeConfig = model.DefaultThemeConfig()
 	}

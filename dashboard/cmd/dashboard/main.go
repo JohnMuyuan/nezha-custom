@@ -94,6 +94,20 @@ func initSystem(bus chan<- *model.Service) error {
 	}
 	singleton.PruneExpiredWAFBlocks()
 
+	// 流媒体解锁/回程/IP体检定时调度 & 资产到期自动推送提醒（每小时整点检查）
+	if _, err := singleton.CronShared.AddFunc("0 5 * * * *", func() {
+		if singleton.InspectionShared != nil {
+			singleton.InspectionShared.RunScheduledChecks()
+		}
+	}); err != nil {
+		return err
+	}
+	if _, err := singleton.CronShared.AddFunc("0 0 * * * *", func() {
+		_, _, _ = singleton.CheckAndSendExpiryNotifications(false)
+	}); err != nil {
+		return err
+	}
+
 	if err := singleton.StartJWTSessionGC(); err != nil {
 		return err
 	}

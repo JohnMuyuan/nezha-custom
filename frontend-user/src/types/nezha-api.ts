@@ -81,6 +81,7 @@ export interface LoginUserResponse {
 		id: number;
 		username: string;
 		password: string;
+		role?: number;
 		created_at: string;
 		updated_at: string;
 	};

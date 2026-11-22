@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import GlobalMap from "@/components/GlobalMap";
 import HomeSkeleton from "@/components/loading/HomeSkeleton";
 import ServerOverview from "@/components/ServerOverview";
@@ -13,6 +13,14 @@ import { ServerControls } from "@/features/servers/server-controls";
 import { ServerList } from "@/features/servers/server-list";
 import { BackendErrorState } from "@/features/servers/server-states";
 import { useServerPreferences } from "@/features/servers/use-server-preferences";
+import {
+	applyExtraServerFilters,
+	INITIAL_EXTRA_FILTER,
+	ServerFilterExtras,
+	type ServerExtraFilterState,
+	useInspectionSummaries,
+} from "@/features/theme-custom/ServerFilterExtras";
+import { useThemeConfig } from "@/features/theme-custom/theme-config";
 import { useSort } from "@/hooks/use-sort";
 import { useStatus } from "@/hooks/use-status";
 import { useWebSocketContext } from "@/hooks/use-websocket-context";
@@ -55,6 +63,12 @@ export default function Servers({
 	const { showServices, showMap, inline, currentGroup } = preferences;
 
 	const { backgroundImage: customBackgroundImage } = useRuntimeConfig();
+	const { filter_bar, media_unlock } = useThemeConfig();
+	const [extraFilter, setExtraFilter] =
+		useState<ServerExtraFilterState>(INITIAL_EXTRA_FILTER);
+	const { data: inspectionSummaries } = useInspectionSummaries(
+		filter_bar.enabled && media_unlock.enabled,
+	);
 
 	const groupServerIdSets = useMemo(
 		() => selectGroupServerIds(groupData?.data),
@@ -84,6 +98,18 @@ export default function Servers({
 				sortOrder,
 			}),
 		[nezhaWsData, currentGroup, groupServerIdSets, status, sortType, sortOrder],
+	);
+
+	const displayedServers = useMemo(
+		() =>
+			filter_bar.enabled
+				? applyExtraServerFilters(
+						filteredServers,
+						extraFilter,
+						inspectionSummaries,
+					)
+				: filteredServers,
+		[filter_bar.enabled, filteredServers, extraFilter, inspectionSummaries],
 	);
 
 	const currentBackendError = backendError || groupError || serviceError;
@@ -117,15 +143,24 @@ export default function Servers({
 				groupTabs={groupTabs}
 				customBackgroundImage={customBackgroundImage}
 			/>
+			{hasServers && (
+				<ServerFilterExtras
+					value={extraFilter}
+					onChange={setExtraFilter}
+					totalBefore={filteredServers.length}
+					totalAfter={displayedServers.length}
+					customBackgroundImage={customBackgroundImage}
+				/>
+			)}
 			{hasServers && showMap === "1" && (
 				<GlobalMap now={nezhaWsData.now} serverList={nezhaWsData.servers} />
 			)}
 			{hasServers && showServices === "1" && (
-				<ServiceTracker serverList={filteredServers} />
+				<ServiceTracker serverList={displayedServers} />
 			)}
 			<ServerList
 				hasServers={hasServers}
-				filteredServers={filteredServers}
+				filteredServers={displayedServers}
 				inline={inline}
 				now={nezhaWsData.now}
 			/>

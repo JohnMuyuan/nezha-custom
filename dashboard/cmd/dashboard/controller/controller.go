@@ -116,6 +116,8 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	optionalAuth.GET("/server/:id/service", restScopeMiddleware(model.ScopeServiceRead), commonHandler(listServerServices))
 	optionalAuth.GET("/server/:id/metrics", restScopeMiddleware(model.ScopeServerRead), commonHandler(getServerMetrics))
 	optionalAuth.GET("/server/:id/online-history", restScopeMiddleware(model.ScopeServerRead), commonHandler(getServerOnlineHistory))
+	optionalAuth.GET("/inspections", restScopeMiddleware(model.ScopeServerRead), commonHandler(listServerInspections))
+	optionalAuth.GET("/server/:id/inspection", restScopeMiddleware(model.ScopeServerRead), commonHandler(getServerInspection))
 
 	// CSRF middleware applies group-wide. Safe methods short-circuit and
 	// PAT bearer requests bypass — so the only callers gated are
@@ -216,6 +218,9 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.GET("/online-user", restScopeMiddleware(model.ScopeAdminAll), pAdminHandler(listOnlineUser))
 	auth.POST("/online-user/batch-block", restScopeMiddleware(model.ScopeAdminAll), adminHandler(batchBlockOnlineUser))
 	auth.PATCH("/setting", restScopeMiddleware(model.ScopeAdminAll), adminHandler(updateConfig))
+	auth.POST("/setting/expiry-notify/test", restScopeMiddleware(model.ScopeAdminAll), adminHandler(testExpiryNotification))
+	auth.POST("/inspections/run-all", restScopeMiddleware(model.ScopeAdminAll), adminHandler(runAllServerInspections))
+	auth.POST("/inspections/:id/run", restScopeMiddleware(model.ScopeAdminAll), adminHandler(runServerInspection))
 	auth.POST("/maintenance", restScopeMiddleware(model.ScopeAdminAll), adminHandler(runMaintenance))
 	registerFrontendRoutes(auth)
 

@@ -98,6 +98,45 @@ export interface ThemeDockConfig {
 	position: "right" | "left";
 }
 
+export const DEFAULT_MEDIA_PLATFORMS = [
+	"netflix",
+	"disney",
+	"youtube",
+	"tiktok",
+	"spotify",
+	"prime",
+	"hbo",
+	"bilibili",
+	"chatgpt",
+	"claude",
+	"gemini",
+] as const;
+
+export interface ThemeMediaUnlockConfig {
+	enabled: boolean;
+	auto_interval_hours: number;
+	max_concurrency: number;
+	check_ipv6: boolean;
+	check_backhaul: boolean;
+	check_ip_quality: boolean;
+	platforms: string[];
+}
+
+export interface ThemeExpiryNotifyConfig {
+	enabled: boolean;
+	notification_group_id: number;
+	alert_days: string;
+	check_hour: number;
+}
+
+export interface ThemeShowcaseCardConfig {
+	enabled: boolean;
+}
+
+export interface ThemeFilterBarConfig {
+	enabled: boolean;
+}
+
 export interface ThemeConfig {
 	appearance: ThemeAppearanceConfig;
 	traffic_bar: ThemeTrafficBarConfig;
@@ -111,6 +150,10 @@ export interface ThemeConfig {
 	greeting: ThemeGreetingConfig;
 	renewal_calendar: ThemeRenewalCalendarConfig;
 	dock: ThemeDockConfig;
+	media_unlock: ThemeMediaUnlockConfig;
+	expiry_notify: ThemeExpiryNotifyConfig;
+	showcase_card: ThemeShowcaseCardConfig;
+	filter_bar: ThemeFilterBarConfig;
 }
 
 export const DEFAULT_CN_HOLIDAYS =
@@ -189,6 +232,27 @@ export const DEFAULT_THEME_CONFIG: ThemeConfig = {
 		enabled: true,
 		position: "right",
 	},
+	media_unlock: {
+		enabled: true,
+		auto_interval_hours: 24,
+		max_concurrency: 2,
+		check_ipv6: true,
+		check_backhaul: true,
+		check_ip_quality: true,
+		platforms: [...DEFAULT_MEDIA_PLATFORMS],
+	},
+	expiry_notify: {
+		enabled: false,
+		notification_group_id: 0,
+		alert_days: "7,3,1",
+		check_hour: 9,
+	},
+	showcase_card: {
+		enabled: true,
+	},
+	filter_bar: {
+		enabled: true,
+	},
 };
 
 export const PASSIVE_THEME_CONFIG: ThemeConfig = {
@@ -221,6 +285,10 @@ export const PASSIVE_THEME_CONFIG: ThemeConfig = {
 		enable_expiry_alerts: false,
 	},
 	dock: { ...DEFAULT_THEME_CONFIG.dock, enabled: false },
+	media_unlock: { ...DEFAULT_THEME_CONFIG.media_unlock, enabled: false },
+	expiry_notify: { ...DEFAULT_THEME_CONFIG.expiry_notify, enabled: false },
+	showcase_card: { ...DEFAULT_THEME_CONFIG.showcase_card, enabled: false },
+	filter_bar: { ...DEFAULT_THEME_CONFIG.filter_bar, enabled: false },
 };
 
 export function mergeThemeConfig(
@@ -283,6 +351,27 @@ export function mergeThemeConfig(
 		dock: {
 			...DEFAULT_THEME_CONFIG.dock,
 			...(raw.dock ?? {}),
+		},
+		media_unlock: {
+			...DEFAULT_THEME_CONFIG.media_unlock,
+			...(raw.media_unlock ?? {}),
+			platforms:
+				Array.isArray(raw.media_unlock?.platforms) &&
+				raw.media_unlock.platforms.length > 0
+					? [...raw.media_unlock.platforms]
+					: [...DEFAULT_MEDIA_PLATFORMS],
+		},
+		expiry_notify: {
+			...DEFAULT_THEME_CONFIG.expiry_notify,
+			...(raw.expiry_notify ?? {}),
+		},
+		showcase_card: {
+			...DEFAULT_THEME_CONFIG.showcase_card,
+			...(raw.showcase_card ?? {}),
+		},
+		filter_bar: {
+			...DEFAULT_THEME_CONFIG.filter_bar,
+			...(raw.filter_bar ?? {}),
 		},
 	};
 }

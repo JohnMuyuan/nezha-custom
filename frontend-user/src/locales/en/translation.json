@@ -127,7 +127,8 @@
 	"tabSwitch": {
 		"Detail": "Detail",
 		"Network": "Network",
-		"Online": "Online"
+		"Online": "Online",
+		"Unlock": "Unlock & Audit"
 	},
 	"monitor": {
 		"noData": "No server monitor data, please add a service monitor first",

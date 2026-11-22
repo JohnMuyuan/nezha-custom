@@ -3,7 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Footer from "@/components/Footer";
 import { EarthGlobeModal } from "@/features/theme-custom/EarthGlobeModal";
 import { GreetingOverview } from "@/features/theme-custom/GreetingOverview";
+import {
+	summarizeBackhaulRoutes,
+	summarizeUnlockedMedia,
+} from "@/features/theme-custom/inspection-api";
 import { RemainingValueBadge } from "@/features/theme-custom/RemainingValueBadge";
+import {
+	applyExtraServerFilters,
+	INITIAL_EXTRA_FILTER,
+} from "@/features/theme-custom/ServerFilterExtras";
 import {
 	formatFileSizeParts,
 	getTrafficGradientColor,
@@ -257,5 +265,85 @@ describe("Theme Custom Enhancements", () => {
 			HTMLDialogElement.prototype.showModal = origShowModal;
 			HTMLDialogElement.prototype.close = origClose;
 		}
+	});
+
+	it("filters and sorts servers by media unlock, expiry, and billing value", () => {
+		const s1 = createServer({
+			id: 101,
+			name: "Tokyo GIA",
+			country_code: "JP",
+			public_note: JSON.stringify({
+				billingDataMod: {
+					endDate: "2026-05-10T00:00:00+08:00",
+					autoRenewal: "0",
+					cycle: "年",
+					amount: "$100",
+				},
+			}),
+		});
+		const s2 = createServer({
+			id: 102,
+			name: "US Budget",
+			country_code: "US",
+			public_note: JSON.stringify({
+				billingDataMod: {
+					endDate: "2026-12-01T00:00:00+08:00",
+					autoRenewal: "0",
+					cycle: "年",
+					amount: "$20",
+				},
+			}),
+		});
+		const summaries = {
+			"101": {
+				server_id: 101,
+				running: false,
+				unlocked: { netflix: "full", chatgpt: "yes" },
+				regions: { netflix: "JP", chatgpt: "JP" },
+				routes: { ct: "CN2 GIA", cu: "联通 AS9929", cm: "移动 CMI" },
+			},
+			"102": {
+				server_id: 102,
+				running: false,
+				unlocked: { netflix: "no", chatgpt: "yes" },
+				regions: { chatgpt: "US" },
+				routes: { ct: "电信 163" },
+			},
+		};
+
+		expect(summarizeUnlockedMedia(summaries["101"])).toContain("Netflix(JP)");
+		expect(summarizeBackhaulRoutes(summaries["101"])).toContain("电信CN2 GIA");
+
+		// Unlock filter: Netflix -> only s1
+		const nfOnly = applyExtraServerFilters(
+			[s1, s2],
+			{ ...INITIAL_EXTRA_FILTER, unlockPlatforms: ["netflix"] },
+			summaries,
+		);
+		expect(nfOnly.map((s) => s.id)).toEqual([101]);
+
+		// Expiring within 30 days -> only s1 (May 10 vs system time May 1)
+		const expiring = applyExtraServerFilters(
+			[s1, s2],
+			{ ...INITIAL_EXTRA_FILTER, expiring30d: true },
+			summaries,
+		);
+		expect(expiring.map((s) => s.id)).toEqual([101]);
+
+		// Search by route -> "9929" matches s1
+		const byRoute = applyExtraServerFilters(
+			[s1, s2],
+			{ ...INITIAL_EXTRA_FILTER, query: "9929" },
+			summaries,
+		);
+		expect(byRoute.map((s) => s.id)).toEqual([101]);
+
+		// Sort by price_asc -> $20 (s2) before $100 (s1)
+		const byPrice = applyExtraServerFilters(
+			[s1, s2],
+			{ ...INITIAL_EXTRA_FILTER, extraSort: "price_asc" },
+			summaries,
+		);
+		expect(byPrice.map((s) => s.id)).toEqual([102, 101]);
 	});
 });
