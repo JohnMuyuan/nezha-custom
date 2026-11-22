@@ -89,7 +89,7 @@ func TestNormalizeOpenAIChatURL(t *testing.T) {
 }
 
 func TestParseSmallTriageVerdictAndMasking(t *testing.T) {
-	raw := "<think>Checking metrics...</think>\n```json\n{\"escalate\": false, \"severity\": \"low\", \"summary\": \"短暂备份波动，无需打扰\"}\n```"
+	raw := "<thinking>Checking metrics...</thinking>\n```json\n{\"escalate\": false, \"severity\": \"low\", \"summary\": \"短暂备份波动，无需打扰\"}\n```"
 	v := parseSmallTriageVerdict(raw)
 	if v.Escalate || v.Severity != "low" || v.Summary != "短暂备份波动，无需打扰" {
 		t.Fatalf("unexpected verdict: %+v", v)
@@ -135,7 +135,9 @@ Nov 22 10:01:02 vps sshd[999]: Accepted publickey for root from 23.147.56.205 po
 ===HASHES===
 1111111111111111111111111111111111111111111111111111111111111111  /root/.ssh/authorized_keys
 2222222222222222222222222222222222222222222222222222222222222222  /etc/passwd
+3333333333333333333333333333333333333333333333333333333333333333  /etc/cron.d/e2scrub_all
 MISSING /etc/ld.so.preload
+===HASHES_END===
 ===BRUTE_10M===
 12`
 
@@ -151,6 +153,9 @@ MISSING /etc/ld.so.preload
 
 	// 1. First scan establishes baseline silently (0 alerts)
 	parsedBase := parseSecurityProbeOutput(baselineRaw)
+	if !parsedBase.HashesComplete {
+		t.Fatal("expected HashesComplete to be true")
+	}
 	if len(parsedBase.ActiveSSH) != 1 { // tmux session ignored, real IP kept
 		t.Fatalf("expected 1 active remote SSH session, got %d", len(parsedBase.ActiveSSH))
 	}
@@ -159,7 +164,7 @@ MISSING /etc/ld.so.preload
 		t.Fatalf("expected 0 alerts on initial baseline, got %d", len(initialAlerts))
 	}
 
-	// 2. Trusted admin login from CIDR does NOT alert
+	// 2. Trusted admin login + unchanged cron file contents (even if /etc mtime changed on disk) -> 0 alerts!
 	trustedNext := parseSecurityProbeOutput(`===WHO===
 root     pts/2        2026-11-22 10:06 (10.8.1.2)
 ===AUTH_ACCEPTED===
@@ -167,14 +172,16 @@ Nov 22 10:06:00 vps sshd[1002]: Accepted publickey for root from 10.8.1.2 port 5
 ===HASHES===
 1111111111111111111111111111111111111111111111111111111111111111  /root/.ssh/authorized_keys
 2222222222222222222222222222222222222222222222222222222222222222  /etc/passwd
+3333333333333333333333333333333333333333333333333333333333333333  /etc/cron.d/e2scrub_all
 MISSING /etc/ld.so.preload
+===HASHES_END===
 ===BRUTE_10M===
 15`)
 	if got := ao.diffServerSecurityFingerprint(srv, trustedNext, cfg, time.Now()); len(got) != 0 {
-		t.Fatalf("expected 0 alerts for trusted IP login, got %+v", got)
+		t.Fatalf("expected 0 alerts for trusted IP login & unchanged file bytes, got %+v", got)
 	}
 
-	// 3. Untrusted SSH login + authorized_keys modification fires BOTH security_ssh and security_tamper!
+	// 3. Untrusted SSH login + authorized_keys modification + new backdoor cron file fires BOTH security_ssh and security_tamper!
 	intrusionRaw := parseSecurityProbeOutput(`===WHO===
 root     pts/3        2026-11-22 10:09 (185.220.101.9)
 ===AUTH_ACCEPTED===
@@ -182,7 +189,10 @@ Nov 22 10:09:01 vps sshd[1055]: Accepted password for root from 185.220.101.9 po
 ===HASHES===
 9999999999999999999999999999999999999999999999999999999999999999  /root/.ssh/authorized_keys
 2222222222222222222222222222222222222222222222222222222222222222  /etc/passwd
+3333333333333333333333333333333333333333333333333333333333333333  /etc/cron.d/e2scrub_all
+4444444444444444444444444444444444444444444444444444444444444444  /etc/cron.d/backdoor
 MISSING /etc/ld.so.preload
+===HASHES_END===
 ===BRUTE_10M===
 20`)
 	alerts := ao.diffServerSecurityFingerprint(srv, intrusionRaw, cfg, time.Now())
@@ -194,6 +204,9 @@ MISSING /etc/ld.so.preload
 	}
 	if alerts[1].triggerType != "security_tamper" || !alerts[1].directToLarge {
 		t.Fatalf("expected second alert to be directToLarge security_tamper, got %+v", alerts[1])
+	}
+	if gotClean := stripReasoningBlocks("<thinking>internal</thinking>\n## 结论\n安全"); gotClean != "## 结论\n安全" {
+		t.Fatalf("expected <thinking> block to be stripped, got %q", gotClean)
 	}
 }
 

@@ -65,7 +65,16 @@ type llmChatResponse struct {
 	} `json:"error,omitempty"`
 }
 
-var thinkTagRegex = regexp.MustCompile(`(?is)<think>.*?</think>`)
+var (
+	thinkTagRegex         = regexp.MustCompile(`(?is)<think(?:ing)?>.*?</think(?:ing)?>`)
+	unclosedThinkTagRegex = regexp.MustCompile(`(?is)<think(?:ing)?>.*$`)
+)
+
+func stripReasoningBlocks(s string) string {
+	cleaned := thinkTagRegex.ReplaceAllString(s, "")
+	cleaned = unclosedThinkTagRegex.ReplaceAllString(cleaned, "")
+	return strings.TrimSpace(cleaned)
+}
 
 // NormalizeOpenAIChatURL converts user-supplied base URLs into a valid
 // /chat/completions endpoint across OpenAI, DeepSeek, SiliconFlow, Gemini, Zhipu, DashScope, and OneAPI.
@@ -101,7 +110,7 @@ func extractMessageText(raw json.RawMessage) string {
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return strings.TrimSpace(thinkTagRegex.ReplaceAllString(s, ""))
+		return stripReasoningBlocks(s)
 	}
 	var parts []struct {
 		Type string `json:"type"`
@@ -114,7 +123,7 @@ func extractMessageText(raw json.RawMessage) string {
 				sb.WriteString(p.Text)
 			}
 		}
-		return strings.TrimSpace(thinkTagRegex.ReplaceAllString(sb.String(), ""))
+		return stripReasoningBlocks(sb.String())
 	}
 	return ""
 }
@@ -248,7 +257,7 @@ type smallModelTriageVerdict struct {
 }
 
 func parseSmallTriageVerdict(raw string) smallModelTriageVerdict {
-	cleaned := strings.TrimSpace(thinkTagRegex.ReplaceAllString(raw, ""))
+	cleaned := stripReasoningBlocks(raw)
 	// Extract JSON object if wrapped in markdown code fences or prose
 	start := strings.IndexByte(cleaned, '{')
 	end := strings.LastIndexByte(cleaned, '}')

@@ -394,7 +394,7 @@ func (ao *AIOpsClass) runAgentReActLoop(
 		if ctx.Err() != nil {
 			return "", steps, ctx.Err()
 		}
-		reply, callErr := callOpenAICompatible(ctx, baseURL, apiKey, modelName, messages, tools, 4096)
+		reply, callErr := callOpenAICompatible(ctx, baseURL, apiKey, modelName, messages, tools, 8192)
 		if callErr != nil {
 			return "", steps, callErr
 		}

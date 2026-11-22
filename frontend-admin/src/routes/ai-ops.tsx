@@ -1020,9 +1020,11 @@ export default function AIOpsPage() {
                             {incidents.map((inc) => {
                                 const steps = parseToolSteps(inc.tool_steps_json)
                                 const isSecurityEvent = inc.trigger_type?.startsWith("security_")
+                                const isVerifiedBenign = isSecurityEvent && inc.severity === "low"
                                 const isHighRiskSecurity =
-                                    inc.trigger_type === "security_ssh" ||
-                                    inc.trigger_type === "security_tamper"
+                                    !isVerifiedBenign &&
+                                    (inc.trigger_type === "security_ssh" ||
+                                        inc.trigger_type === "security_tamper")
                                 const statusBadge = (() => {
                                     switch (inc.status) {
                                         case "dismissed_by_small":
@@ -1052,6 +1054,13 @@ export default function AIOpsPage() {
                                                 </span>
                                             )
                                         default:
+                                            if (isVerifiedBenign) {
+                                                return (
+                                                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                                                        🟢 高级专家复核：正常变更（非入侵）
+                                                    </span>
+                                                )
+                                            }
                                             if (isHighRiskSecurity) {
                                                 return (
                                                     <span className="rounded-full bg-rose-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:text-rose-300">
@@ -1082,7 +1091,7 @@ export default function AIOpsPage() {
                                         className={`space-y-2.5 rounded-xl border bg-card p-4 shadow-2xs ${
                                             isHighRiskSecurity
                                                 ? "border-rose-500/50"
-                                                : isSecurityEvent
+                                                : isSecurityEvent && !isVerifiedBenign
                                                   ? "border-orange-500/40"
                                                   : ""
                                         }`}

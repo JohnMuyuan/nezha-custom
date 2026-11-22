@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,13 +37,18 @@ for p in /root/.ssh/authorized_keys /etc/passwd /etc/shadow /etc/sudoers /etc/ld
     echo "MISSING $p"
   fi
 done
-ls -la /etc/cron.d /var/spool/cron /var/spool/cron/crontabs 2>/dev/null | sha256sum 2>/dev/null | awk '{print $1 "  CRON_DIRS"}'
+find /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly /var/spool/cron/crontabs /var/spool/cron -maxdepth 1 -type f ! -name '*.swp' ! -name '*.tmp*' ! -name '.#*' ! -name '*~' 2>/dev/null | LC_ALL=C sort -u | head -n 80 | while IFS= read -r cf; do
+  sha256sum "$cf" 2>/dev/null
+done
+echo "===HASHES_END==="
 echo "===BRUTE_10M==="
 if command -v journalctl >/dev/null 2>&1; then
   journalctl -u ssh -u sshd --since "-10min" --no-pager -q 2>/dev/null | grep -c "Failed password" || true
 fi`
 
 	aiOpsSSHForensicSh = `export LC_ALL=C; echo "=== ACTIVE TTY & COMMANDS (w) ==="; w 2>/dev/null; echo "=== PROCESS TREE ==="; ps -eo pid,ppid,user,%cpu,%mem,lstart,args --sort=-pid 2>/dev/null | head -n 35; echo "=== LAST 10 LOGINS ==="; last -n 10 -i 2>/dev/null; echo "=== ESTABLISHED SSH/NET ==="; ss -tunp state established 2>/dev/null | head -n 30; echo "=== AUTHORIZED_KEYS META ==="; ls -la /root/.ssh 2>/dev/null; tail -n 10 /root/.ssh/authorized_keys 2>/dev/null`
+
+	aiOpsTamperForensicSh = `export LC_ALL=C; echo "=== ACTIVE TTY & COMMANDS (w) ==="; w 2>/dev/null; echo "=== LAST 8 LOGINS ==="; last -n 8 -i 2>/dev/null; echo "=== SENSITIVE & CRON META ==="; ls -la --full-time /etc/crontab /etc/cron.d /var/spool/cron/crontabs /root/.ssh/authorized_keys /etc/passwd /etc/sudoers /etc/ld.so.preload 2>/dev/null; echo "=== ROOT CRONTAB ==="; crontab -l 2>/dev/null | tail -n 30; echo "=== RECENT PROCESSES ==="; ps -eo pid,ppid,user,%cpu,%mem,lstart,args --sort=-pid 2>/dev/null | head -n 25`
 
 	aiOpsExfilForensicSh = `export LC_ALL=C; echo "=== ESTABLISHED OUTBOUND CONNECTIONS ==="; ss -tunp state established 2>/dev/null | head -n 45; echo "=== TOP REMOTE IPS ==="; ss -ntu state established 2>/dev/null | awk 'NR>1 {print $5}' | sed 's/:[0-9]*$//' | sort | uniq -c | sort -nr | head -n 15; echo "=== TOP PROCESSES ==="; ps -eo pid,user,%cpu,%mem,comm,args --sort=-%cpu 2>/dev/null | head -n 20; echo "=== ACTIVE USERS ==="; w 2>/dev/null`
 
@@ -62,10 +68,11 @@ type sshLoginEvent struct {
 }
 
 type securityProbeResult struct {
-	ActiveSSH     []sshLoginEvent
-	AcceptedSSH   []sshLoginEvent
-	FileHashes    map[string]string
-	BruteCount10m int
+	ActiveSSH      []sshLoginEvent
+	AcceptedSSH    []sshLoginEvent
+	FileHashes     map[string]string
+	HashesComplete bool
+	BruteCount10m  int
 }
 
 type serverSecurityState struct {
@@ -133,6 +140,10 @@ func parseSecurityProbeOutput(raw string) securityProbeResult {
 			continue
 		case "===HASHES===":
 			section = "hashes"
+			continue
+		case "===HASHES_END===":
+			res.HashesComplete = true
+			section = ""
 			continue
 		case "===BRUTE_10M===":
 			section = "brute"
@@ -393,16 +404,18 @@ func (ao *AIOpsClass) diffServerSecurityFingerprint(
 
 	// First scan after Dashboard boot: record baseline silently without false-alarming on historical logins!
 	if !st.initialized {
-		for k, v := range parsed.FileHashes {
-			st.fileHashes[k] = v
-		}
 		for _, ev := range parsed.AcceptedSSH {
 			st.seenLogins["acc:"+ev.Raw] = now
 		}
 		for _, ev := range parsed.ActiveSSH {
 			st.seenLogins["who:"+ev.User+"@"+ev.IP] = now
 		}
-		st.initialized = true
+		if parsed.HashesComplete {
+			for k, v := range parsed.FileHashes {
+				st.fileHashes[k] = v
+			}
+			st.initialized = true
+		}
 		return nil
 	}
 
@@ -445,26 +458,46 @@ func (ao *AIOpsClass) diffServerSecurityFingerprint(
 		}
 	}
 
-	// 2. Check for tampering of critical backdoor-sensitive files
-	var tamperedPaths []string
-	for path, newHash := range parsed.FileHashes {
-		oldHash, existed := st.fileHashes[path]
-		st.fileHashes[path] = newHash
-		if existed && oldHash != newHash {
-			tamperedPaths = append(tamperedPaths, path)
+	// 2. Check for content-level tampering of critical backdoor-sensitive files & cron job files
+	// (Only compare when ===HASHES_END=== completed cleanly; never hashes directory '.'/'..' mtimes!)
+	if parsed.HashesComplete {
+		isCronFile := func(p string) bool {
+			return strings.HasPrefix(p, "/etc/cron.") || strings.HasPrefix(p, "/var/spool/cron/")
 		}
-	}
-	if len(tamperedPaths) > 0 {
-		tamperKey := fmt.Sprintf("%d:security_tamper", srv.ID)
-		if now.After(ao.securityCooldown[tamperKey]) {
-			ao.securityCooldown[tamperKey] = now.Add(10 * time.Minute)
-			findings = append(findings, detectedSecurityAnomaly{
-				server:        srv,
-				triggerType:   "security_tamper",
-				summary:       fmt.Sprintf("🚨 敏感系统文件被篡改变动：%s", strings.Join(tamperedPaths, ", ")),
-				forensicSh:    aiOpsSSHForensicSh,
-				directToLarge: true, // High-risk tamper event: escalate straight to Large Model!
-			})
+		var tamperedPaths []string
+		for path, newHash := range parsed.FileHashes {
+			oldHash, existed := st.fileHashes[path]
+			if !existed {
+				tamperedPaths = append(tamperedPaths, "新增 "+path)
+			} else if oldHash != newHash {
+				tamperedPaths = append(tamperedPaths, path)
+			}
+		}
+		for oldPath := range st.fileHashes {
+			if isCronFile(oldPath) {
+				if _, stillExists := parsed.FileHashes[oldPath]; !stillExists {
+					tamperedPaths = append(tamperedPaths, "删除 "+oldPath)
+				}
+			}
+		}
+		st.fileHashes = make(map[string]string, len(parsed.FileHashes))
+		for k, v := range parsed.FileHashes {
+			st.fileHashes[k] = v
+		}
+		slices.Sort(tamperedPaths)
+
+		if len(tamperedPaths) > 0 {
+			tamperKey := fmt.Sprintf("%d:security_tamper", srv.ID)
+			if now.After(ao.securityCooldown[tamperKey]) {
+				ao.securityCooldown[tamperKey] = now.Add(15 * time.Minute)
+				findings = append(findings, detectedSecurityAnomaly{
+					server:        srv,
+					triggerType:   "security_tamper",
+					summary:       fmt.Sprintf("🚨 敏感系统文件被篡改变动：%s", strings.Join(tamperedPaths, ", ")),
+					forensicSh:    aiOpsTamperForensicSh,
+					directToLarge: true, // High-risk tamper event: escalate straight to Large Model!
+				})
+			}
 		}
 	}
 
@@ -582,10 +615,11 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 - 如果是疑似数据外泄：查清是哪个具体进程/PID 正在往哪个目标 IP:端口 大量外发数据；
 - 如果是疑似网站被攻击：查清排名前列的攻击源 IP、被打的端口或网站域名路径。
 
-请输出清晰的中文 Markdown 安全取证报告，包含：【风险定级与结论】、【攻击源 / 可疑进程取证详情】、【一键封禁 / 处置建议】。`,
+请输出清晰的中文 Markdown 安全取证报告，包含：【风险定级与结论】、【攻击源 / 可疑进程取证详情】、【一键封禁 / 处置建议】。
+若经你上机核查确认本次事件纯属正常面板/系统定时任务（如宝塔、1Panel、acme.sh、apt 更新）或误报、无任何入侵迹象，请在报告最末尾单独附上一行标记：[BENIGN_CHANGE]`,
 		srv.Name, srv.ID, item.triggerType, item.summary, forensicOut, srv.ID)
 
-	invCtx, invCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	invCtx, invCancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	report, steps, lErr := ao.runAgentReActLoop(
 		invCtx,
 		largeURL,
@@ -608,15 +642,28 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 		return
 	}
 
+	isBenign := strings.Contains(report, "[BENIGN_CHANGE]") ||
+		(strings.Contains(report, "误报") && (strings.Contains(report, "未发现入侵") || strings.Contains(report, "不是入侵")))
+	report = strings.TrimSpace(strings.ReplaceAll(report, "[BENIGN_CHANGE]", ""))
+
 	finalStatus := "reported"
 	if cfg.AutoSelfHeal {
 		finalStatus = "healed"
 	}
-	_ = DB.Model(&incident).Updates(map[string]any{
+	updates := map[string]any{
 		"status":          finalStatus,
 		"large_report":    report,
 		"tool_steps_json": string(stepsBytes),
-	}).Error
+	}
+	if isBenign {
+		updates["severity"] = "low"
+		updates["small_verdict"] = "✅ 高级安全专家上机复核确认：属于正常面板/系统维护变更，已排除入侵风险（免打扰不推送警报）"
+	}
+	_ = DB.Model(&incident).Updates(updates).Error
+
+	if isBenign {
+		return
+	}
 
 	pushBody := fmt.Sprintf("🚨 AI 安全哨兵警报 [%s]\n%s\n\n%s", srv.Name, item.summary, report)
 	if len([]rune(pushBody)) > 1200 {
