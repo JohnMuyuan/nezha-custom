@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
@@ -229,7 +230,7 @@ func authenticator() func(c *gin.Context) (any, error) {
 		var user model.User
 		realip := c.GetString(model.CtxKeyRealIPStr)
 
-		if err := singleton.DB.Select("id", "password", "reject_password", "token_version").Where("username = ?", loginVals.Username).First(&user).Error; err != nil {
+		if err := singleton.DB.Select("id", "password", "reject_password", "token_version", "totp_enabled", "totp_secret", "totp_recovery_hashes", "totp_last_used_step").Where("username = ?", loginVals.Username).First(&user).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeLoginFail, model.BlockIDUnknownUser)
 			}
@@ -244,6 +245,20 @@ func authenticator() func(c *gin.Context) (any, error) {
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginVals.Password)); err != nil {
 			model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeLoginFail, int64(user.ID))
 			return nil, jwt.ErrFailedAuthentication
+		}
+
+		// Step 2: Enforce 6-digit TOTP (or single-use recovery code) ONLY after password matches
+		// so unauthenticated attackers cannot enumerate which accounts have 2FA enabled.
+		if user.TOTPEnabled && strings.TrimSpace(user.TOTPSecret) != "" {
+			if strings.TrimSpace(loginVals.TOTPCode) == "" {
+				c.Set(ctxKeyTOTPRequired, true)
+				return nil, errTOTPRequired
+			}
+			if !verifyUserTOTPOrRecoveryCode(&user, loginVals.TOTPCode) {
+				model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeLoginFail, int64(user.ID))
+				c.Set(ctxKeyTOTPInvalid, true)
+				return nil, errTOTPInvalid
+			}
 		}
 
 		model.UnblockIP(singleton.DB, realip, model.BlockIDUnknownUser)
@@ -262,9 +277,15 @@ func authorizator() func(data any, c *gin.Context) bool {
 
 func unauthorized() func(c *gin.Context, code int, message string) {
 	return func(c *gin.Context, code int, message string) {
+		errCode := "ApiErrorUnauthorized"
+		if c.GetBool(ctxKeyTOTPRequired) {
+			errCode = "ApiErrorTOTPRequired"
+		} else if c.GetBool(ctxKeyTOTPInvalid) {
+			errCode = "ApiErrorTOTPInvalid"
+		}
 		c.JSON(http.StatusOK, model.CommonResponse[any]{
 			Success: false,
-			Error:   "ApiErrorUnauthorized",
+			Error:   errCode,
 		})
 	}
 }

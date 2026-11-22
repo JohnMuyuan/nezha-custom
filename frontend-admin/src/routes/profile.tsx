@@ -1,6 +1,7 @@
 import { Oauth2RequestType, getOauth2RedirectURL, unbindOauth2 } from "@/api/oauth2"
 import { getProfile } from "@/api/user"
 import { ProfileCard } from "@/components/profile"
+import { TotpSecurityCard } from "@/components/totp-card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -79,6 +80,7 @@ export default function ProfilePage() {
                 )}
                 <div className="w-full">
                     <div className="flex flex-col gap-4">
+                        <TotpSecurityCard />
                         <Card className="w-full">
                             <CardHeader>
                                 <CardTitle className="flex gap-2 text-xl items-center">

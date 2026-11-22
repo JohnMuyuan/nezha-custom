@@ -497,6 +497,7 @@ export interface ModelProfile {
     password: string
     reject_password: boolean
     role: number
+    totp_enabled?: boolean
     updated_at: string
     username: string
 }
@@ -808,6 +809,7 @@ export interface ModelUser {
     password: string
     reject_password: boolean
     role: number
+    totp_enabled?: boolean
     updated_at: string
     username: string
 }

@@ -23,12 +23,17 @@ const DefaultAgentSecretLength = 32
 
 type User struct {
 	Common
-	Username       string `json:"username,omitempty" gorm:"uniqueIndex"`
-	Password       string `json:"-" gorm:"type:char(72)"`
-	Role           Role   `json:"role"`
-	AgentSecret    string `json:"agent_secret,omitempty" gorm:"type:char(32)"`
-	RejectPassword bool   `json:"reject_password,omitempty"`
-	TokenVersion   uint64 `json:"-" gorm:"not null;default:0"`
+	Username           string `json:"username,omitempty" gorm:"uniqueIndex"`
+	Password           string `json:"-" gorm:"type:char(72)"`
+	Role               Role   `json:"role"`
+	AgentSecret        string `json:"agent_secret,omitempty" gorm:"type:char(32)"`
+	RejectPassword     bool   `json:"reject_password,omitempty"`
+	TokenVersion       uint64 `json:"-" gorm:"not null;default:0"`
+	TOTPEnabled        bool   `json:"totp_enabled"`
+	TOTPSecret         string `json:"-" gorm:"type:varchar(128)"`
+	TOTPPendingSecret  string `json:"-" gorm:"type:varchar(128)"`
+	TOTPRecoveryHashes string `json:"-" gorm:"type:text"`
+	TOTPLastUsedStep   int64  `json:"-" gorm:"not null;default:0"`
 }
 
 type UserInfo struct {

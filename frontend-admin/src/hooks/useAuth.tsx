@@ -1,6 +1,6 @@
 import { getProfile, login as loginRequest } from "@/api/user"
 import { clearMCPOAuthReturn, consumeMCPOAuthReturn } from "@/lib/mcp-oauth-navigation"
-import { AuthContextProps } from "@/types"
+import { AuthContextProps, LoginResult } from "@/types"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router-dom"
@@ -11,7 +11,7 @@ import { useMainStore } from "./useMainStore"
 const AuthContext = createContext<AuthContextProps>({
     profile: undefined,
     loading: true,
-    login: () => {},
+    login: async () => "error",
     loginOauth2: () => {},
     logout: () => {},
 })
@@ -55,21 +55,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const navigate = useNavigate()
 
     const login = useCallback(
-        async (username: string, password: string) => {
+        async (username: string, password: string, totpCode?: string): Promise<LoginResult> => {
             try {
-                await loginRequest(username, password)
+                await loginRequest(username, password, totpCode)
                 const user = await getProfile()
                 authEpoch.current++
                 user.role = normalizeRole(user.role)
                 setProfile(user)
                 navigate(consumeMCPOAuthReturn())
+                return "ok"
             } catch (error: any) {
                 const msg = error?.message
+                if (msg === "ApiErrorTOTPRequired") {
+                    return "totp_required"
+                }
+                if (msg === "ApiErrorTOTPInvalid") {
+                    toast.error("6 位动态验证码（或恢复码）不正确或已过期，请核对后重试")
+                    return "totp_invalid"
+                }
                 if (msg === "ApiErrorUnauthorized" || msg === "Unauthorized") {
                     toast(t("InvalidUsernameOrPassword"))
                 } else {
                     toast(msg || t("NetworkError"))
                 }
+                return "error"
             } finally {
                 // An explicit login resolves auth regardless of the still-pending
                 // mount probe; clear loading so ProtectedRoute stops blanking.
