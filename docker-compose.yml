@@ -1,0 +1,11 @@
+services:
+  dashboard:
+    image: ghcr.io/johnmuyuan/nezha-custom:latest
+    container_name: nezha-dashboard
+    restart: always
+    volumes:
+      - ./data:/dashboard/data
+    ports:
+      - "8008:8008"
+    environment:
+      - TZ=Asia/Shanghai

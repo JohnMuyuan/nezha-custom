@@ -1,0 +1,15 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local runtime data & secrets
+data/
+.env
+.env.local
+
+# Root build outputs
+dist/
