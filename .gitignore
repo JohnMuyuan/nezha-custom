@@ -10,6 +10,11 @@ Thumbs.db
 data/
 .env
 .env.local
+.deploy-keys/
+*.pem
+*.key
+id_ed25519*
+id_rsa*
 
 # Root build outputs
 dist/
