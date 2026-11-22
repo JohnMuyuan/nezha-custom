@@ -122,3 +122,16 @@ func TestParseBillingExpiryDays(t *testing.T) {
 	_, _, _, _, _, ok = ParseBillingExpiryDays(`{"billingDataMod":{"endDate":"0000-00-00T00:00:00+08:00","cycle":"年","amount":"$10"}}`, now)
 	require.False(t, ok)
 }
+
+func TestShouldScheduleInspection(t *testing.T) {
+	now := time.Date(2026, 5, 2, 16, 5, 0, 0, time.UTC)
+
+	// Never checked -> due immediately
+	require.True(t, shouldScheduleInspection(time.Time{}, now, 24))
+	// Checked 12 hours ago -> not due
+	require.False(t, shouldScheduleInspection(now.Add(-12*time.Hour), now, 24))
+	// Checked 23h50m ago (finished 10m after yesterday's cron tick) -> due within 15m grace window (zero daily drift)
+	require.True(t, shouldScheduleInspection(now.Add(-23*time.Hour-50*time.Minute), now, 24))
+	// Disabled (interval=0) -> never auto-scheduled
+	require.False(t, shouldScheduleInspection(time.Time{}, now, 0))
+}

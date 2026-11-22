@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"time"
 	_ "time/tzdata"
 
 	"github.com/gin-gonic/gin"
@@ -102,6 +103,13 @@ func initSystem(bus chan<- *model.Service) error {
 	}); err != nil {
 		return err
 	}
+	// 启动后等待 45 秒让 Agent 重连，随后自动为尚未体检或已超过周期的在线节点补测（无需手动下发）
+	go func() {
+		time.Sleep(45 * time.Second)
+		if singleton.InspectionShared != nil {
+			singleton.InspectionShared.RunScheduledChecks()
+		}
+	}()
 	if _, err := singleton.CronShared.AddFunc("0 0 * * * *", func() {
 		_, _, _ = singleton.CheckAndSendExpiryNotifications(false)
 	}); err != nil {

@@ -12,6 +12,7 @@ import {
 	applyExtraServerFilters,
 	INITIAL_EXTRA_FILTER,
 } from "@/features/theme-custom/ServerFilterExtras";
+import ServerInspectionTab from "@/features/theme-custom/ServerInspectionTab";
 import {
 	formatFileSizeParts,
 	getTrafficGradientColor,
@@ -24,6 +25,21 @@ import {
 } from "@/features/theme-custom/theme-config";
 import { createServer } from "@/test/fixtures";
 import { renderWithProviders } from "@/test/utils";
+
+const mockLoginUserState = vi.hoisted(() => ({
+	data: null as { data?: { id: number; role?: number } } | null,
+	isAuthenticated: false,
+}));
+
+vi.mock("@/hooks/use-login-user", () => ({
+	useLoginUser: () => ({
+		data: mockLoginUserState.data,
+		isAuthenticated: mockLoginUserState.isAuthenticated,
+		authStatus: mockLoginUserState.isAuthenticated
+			? "authenticated"
+			: "anonymous",
+	}),
+}));
 
 vi.mock("@/lib/nezha-api", () => ({
 	fetchSetting: vi.fn().mockResolvedValue({
@@ -345,5 +361,63 @@ describe("Theme Custom Enhancements", () => {
 			summaries,
 		);
 		expect(byPrice.map((s) => s.id)).toEqual([102, 101]);
+	});
+
+	it("hides inspection dispatch button for guests and non-admins, shows it only for admins", async () => {
+		vi.useRealTimers();
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					success: true,
+					data: { server_id: 1, running: false },
+				}),
+				{ status: 200 },
+			),
+		);
+		try {
+			// 1. Guest (anonymous)
+			mockLoginUserState.data = null;
+			mockLoginUserState.isAuthenticated = false;
+			const guestView = renderWithProviders(
+				<ThemeCustomProvider rawConfig={DEFAULT_THEME_CONFIG}>
+					<ServerInspectionTab server_id={1} />
+				</ThemeCustomProvider>,
+			);
+			await screen.findByText(/节点能力体检中心/);
+			expect(
+				screen.queryByRole("button", { name: /立即重新体检/ }),
+			).not.toBeInTheDocument();
+			guestView.unmount();
+
+			// 2. Logged-in non-admin member (role = 1)
+			mockLoginUserState.data = { data: { id: 2, role: 1 } };
+			mockLoginUserState.isAuthenticated = true;
+			const memberView = renderWithProviders(
+				<ThemeCustomProvider rawConfig={DEFAULT_THEME_CONFIG}>
+					<ServerInspectionTab server_id={1} />
+				</ThemeCustomProvider>,
+			);
+			await screen.findByText(/节点能力体检中心/);
+			expect(
+				screen.queryByRole("button", { name: /立即重新体检/ }),
+			).not.toBeInTheDocument();
+			memberView.unmount();
+
+			// 3. Logged-in admin (role = 0)
+			mockLoginUserState.data = { data: { id: 1, role: 0 } };
+			mockLoginUserState.isAuthenticated = true;
+			renderWithProviders(
+				<ThemeCustomProvider rawConfig={DEFAULT_THEME_CONFIG}>
+					<ServerInspectionTab server_id={1} />
+				</ThemeCustomProvider>,
+			);
+			expect(
+				await screen.findByRole("button", { name: /立即重新体检/ }),
+			).toBeInTheDocument();
+		} finally {
+			fetchSpy.mockRestore();
+			mockLoginUserState.data = null;
+			mockLoginUserState.isAuthenticated = false;
+		}
 	});
 });

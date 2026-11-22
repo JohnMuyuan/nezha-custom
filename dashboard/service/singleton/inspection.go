@@ -328,8 +328,26 @@ func (ic *InspectionClass) TriggerAllOnline(scopes []string) int {
 	return count
 }
 
-// RunScheduledChecks runs periodically (hourly cron) and triggers inspections
-// for online servers whose last check is older than auto_interval_hours.
+// shouldScheduleInspection decides whether a server's inspection is due.
+// A 15-minute grace window prevents hourly cron ticks from drifting +1h/day
+// when a 24h cycle finishes a few minutes after the trigger minute.
+func shouldScheduleInspection(updatedAt, now time.Time, intervalHours int) bool {
+	if intervalHours <= 0 {
+		return false
+	}
+	if updatedAt.IsZero() {
+		return true
+	}
+	grace := time.Duration(0)
+	if intervalHours >= 2 {
+		grace = 15 * time.Minute
+	}
+	cutoff := now.Add(-time.Duration(intervalHours)*time.Hour + grace)
+	return updatedAt.Before(cutoff)
+}
+
+// RunScheduledChecks runs periodically (hourly cron + startup warm-up) and
+// triggers inspections for online servers whose last check is older than auto_interval_hours.
 func (ic *InspectionClass) RunScheduledChecks() {
 	if ic == nil || Conf == nil {
 		return
@@ -342,10 +360,11 @@ func (ic *InspectionClass) RunScheduledChecks() {
 	if intervalHours <= 0 {
 		return
 	}
-	cutoff := time.Now().Add(-time.Duration(intervalHours) * time.Hour)
 	if ServerShared == nil {
 		return
 	}
+	now := time.Now()
+	queued := 0
 	for _, server := range ServerShared.Range {
 		if server == nil || server.GetTaskStream() == nil {
 			continue
@@ -354,9 +373,14 @@ func (ic *InspectionClass) RunScheduledChecks() {
 		if cur.Running {
 			continue
 		}
-		if cur.UpdatedAt.IsZero() || cur.UpdatedAt.Before(cutoff) {
-			_ = ic.TriggerServer(server.ID, nil)
+		if shouldScheduleInspection(cur.UpdatedAt, now, intervalHours) {
+			if err := ic.TriggerServer(server.ID, nil); err == nil {
+				queued++
+			}
 		}
+	}
+	if queued > 0 {
+		log.Printf("NEZHA>> Scheduled automatic inspection for %d online server(s) (interval=%dh)", queued, intervalHours)
 	}
 }
 

@@ -15,8 +15,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useLoginUser } from "@/hooks/use-login-user";
 import { useWebSocketContext } from "@/hooks/use-websocket-context";
-import { fetchLoginUser } from "@/lib/nezha-api";
 import { cn } from "@/lib/utils";
 import {
 	fetchServerInspection,
@@ -112,13 +112,8 @@ export default function ServerInspectionTab({
 	const [triggering, setTriggering] = useState(false);
 	const [showcaseOpen, setShowcaseOpen] = useState(false);
 
-	const { data: loginUser } = useQuery({
-		queryKey: ["login-user"],
-		queryFn: () => fetchLoginUser(),
-		retry: false,
-		staleTime: 60_000,
-	});
-	const isAdmin = loginUser?.data?.role === 0;
+	const { data: loginUser, isAuthenticated } = useLoginUser();
+	const isAdmin = isAuthenticated && loginUser?.data?.role === 0;
 
 	const { data: inspection, isLoading } = useQuery({
 		queryKey: ["server-inspection", server_id],
@@ -173,6 +168,14 @@ export default function ServerInspectionTab({
 					</div>
 					<div className="text-xs text-muted-foreground">
 						最近体检时间：{formatCheckTime(inspection?.updated_at)}
+						{media_unlock.auto_interval_hours > 0 && (
+							<span className="ml-2 text-muted-foreground/80">
+								·{" "}
+								{media_unlock.auto_interval_hours === 24
+									? "每日自动体检"
+									: `每 ${media_unlock.auto_interval_hours} 小时自动体检`}
+							</span>
+						)}
 						{inspection?.last_error && (
 							<span className="ml-2 text-amber-600 dark:text-amber-400">
 								（部分项提示：{inspection.last_error}）
@@ -254,10 +257,10 @@ export default function ServerInspectionTab({
 
 						{!media ? (
 							<div className="rounded-lg border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
-								该节点尚未执行流媒体解锁检测。
+								该节点尚未生成流媒体解锁体检报告。
 								{isAdmin
-									? "请点击右上角「立即重新体检」，或等待后台定时任务自动运行。"
-									: "等待管理员触发首次体检后即可查看。"}
+									? "可点击右上角「立即重新体检」，或等待每日自动定时任务运行。"
+									: "系统每日自动定时体检完成后即可展示结果。"}
 							</div>
 						) : stackTab === "v6" && !media.ipv6_available ? (
 							<div className="rounded-lg border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
