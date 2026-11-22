@@ -208,6 +208,10 @@ MISSING /etc/ld.so.preload
 	if gotClean := stripReasoningBlocks("<thinking>internal</thinking>\n## 结论\n安全"); gotClean != "## 结论\n安全" {
 		t.Fatalf("expected <thinking> block to be stripped, got %q", gotClean)
 	}
+	truncClean, hadUnclosed := stripReasoningBlocksWithMeta("<thinking>The user wants me to continue...\ncd /opt/danmu-")
+	if !hadUnclosed || truncClean != "" {
+		t.Fatalf("expected unclosed <thinking> to be detected with empty output, got hadUnclosed=%v clean=%q", hadUnclosed, truncClean)
+	}
 }
 
 func TestWrapCommandAndHistoryCoalesce(t *testing.T) {

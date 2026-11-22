@@ -371,7 +371,8 @@ func buildOpsSystemPrompt(readOnly bool) string {
    - 若是独立 docker run 启动的：务必先完整读取它的端口、环境变量、挂载目录和重启策略后再拉取新镜像重建。
    - 升级完成后，必须执行 docker ps 和 docker logs --tail 25 确认新容器处于 Up 健康状态，再向用户汇报新旧状态对比。
 3. 【安全底线】：严禁停止/重启/删除 nezha-agent 自身进程（否则会切断你与该机器的控制连接！），严禁执行删根、格式化磁盘、断网或关机指令。禁止执行无退出条件的交互式命令（如不带 -bn1 的 top、vim、tail -f）。
-4. 回复请使用简洁明了的中文 Markdown，总结你做了哪些操作、结果如何。`, nowStr)
+4. 【分批小步快跑（防思考超长截断）】：同时操作多台服务器或多个容器时，严禁把所有规划一次性写在冗长的思考过程里！请简短思考后立即分批调用 exec_on_server（每次先更新 1~2 个容器并立即检查健康状态，再继续下一批），不要空想不干活。
+5. 回复请使用简洁明了的中文 Markdown，总结你做了哪些操作、结果如何。`, nowStr)
 }
 
 // runAgentReActLoop executes the multi-step LLM + Agent tool loop.
@@ -390,23 +391,51 @@ func (ao *AIOpsClass) runAgentReActLoop(
 	})
 	messages = append(messages, history...)
 
+	truncationRetries := 0
 	for iter := 0; iter < aiOpsMaxReActSteps; iter++ {
 		if ctx.Err() != nil {
 			return "", steps, ctx.Err()
 		}
-		reply, callErr := callOpenAICompatible(ctx, baseURL, apiKey, modelName, messages, tools, 8192)
+		reply, callErr := callOpenAICompatible(ctx, baseURL, apiKey, modelName, messages, tools, 16384)
 		if callErr != nil {
 			return "", steps, callErr
 		}
-		messages = append(messages, reply)
 
 		if len(reply.ToolCalls) == 0 {
 			text, _ := reply.Content.(string)
-			if strings.TrimSpace(text) == "" {
-				text = "✅ 操作已完成。"
+			trimmed := strings.TrimSpace(text)
+
+			// Detect reasoning-model <thinking> truncation or empty reply when finish_reason == "length":
+			// NEVER falsely report "✅ 操作已完成。" when the model got cut off before emitting tool calls!
+			if reply.RawHadUnclosedThink || trimmed == "" {
+				if truncationRetries < 2 {
+					truncationRetries++
+					if onStep != nil {
+						onStep(steps, "检测到模型思考过长被截断，正在自动切换为精简分批模式继续执行...")
+					}
+					messages = append(messages,
+						llmChatMessage{
+							Role:    "assistant",
+							Content: "收到，我将简短思考并分批调用工具推进。",
+						},
+						llmChatMessage{
+							Role:    "user",
+							Content: "你上一条内部思考过长导致输出被截断，未能发出工具调用或最终汇报。请严禁长篇内心思考，立刻调用 exec_on_server 分批执行剩余操作（每次只改 1~2 个服务即可），若全部已完成则直接输出简明中文结果对比。",
+						},
+					)
+					continue
+				}
+				return "", steps, errors.New("模型单次思考内容过长导致输出被截断（未发出实际命令或最终汇报）")
 			}
-			return text, steps, nil
+
+			messages = append(messages, reply)
+			if reply.FinishReason == "length" {
+				trimmed += "\n\n> ⚠️ 本条回复触及单次输出长度上限，若末尾未展示完整可继续追问。"
+			}
+			return trimmed, steps, nil
 		}
+
+		messages = append(messages, reply)
 
 		nCalls := len(reply.ToolCalls)
 		if nCalls == 1 {
@@ -464,11 +493,14 @@ func (ao *AIOpsClass) runAgentReActLoop(
 		Role:    "user",
 		Content: "工具调用步数已达上限，请根据以上已获取的信息直接向管理员输出总结汇报。",
 	})
-	finalReply, callErr := callOpenAICompatible(ctx, baseURL, apiKey, modelName, messages, nil, 2048)
+	finalReply, callErr := callOpenAICompatible(ctx, baseURL, apiKey, modelName, messages, nil, 8192)
 	if callErr != nil {
 		return "", steps, callErr
 	}
 	text, _ := finalReply.Content.(string)
+	if strings.TrimSpace(text) == "" {
+		return "", steps, errors.New("工具步数达上限且总结回复被截断，请点击下方按钮继续")
+	}
 	return text, steps, nil
 }
 
@@ -571,7 +603,12 @@ func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string, customTi
 			history = appendCoalescedHistory(history, "user", m.Content)
 		} else if m.Role == "assistant" {
 			if m.Status == "done" {
-				history = appendCoalescedHistory(history, "assistant", m.Content)
+				cleaned := stripReasoningBlocks(m.Content)
+				if cleaned != "" {
+					history = appendCoalescedHistory(history, "assistant", cleaned)
+				} else {
+					history = appendCoalescedHistory(history, "assistant", buildInterruptedStepSummary(m))
+				}
 			} else {
 				history = appendCoalescedHistory(history, "assistant", buildInterruptedStepSummary(m))
 			}

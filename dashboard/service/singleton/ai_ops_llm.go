@@ -34,11 +34,13 @@ type llmToolCall struct {
 }
 
 type llmChatMessage struct {
-	Role             string        `json:"role"` // system | user | assistant | tool
-	Content          any           `json:"content"`
-	ReasoningContent string        `json:"reasoning_content,omitempty"`
-	ToolCalls        []llmToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string        `json:"tool_call_id,omitempty"`
+	Role                string        `json:"role"` // system | user | assistant | tool
+	Content             any           `json:"content"`
+	ReasoningContent    string        `json:"reasoning_content,omitempty"`
+	ToolCalls           []llmToolCall `json:"tool_calls,omitempty"`
+	ToolCallID          string        `json:"tool_call_id,omitempty"`
+	FinishReason        string        `json:"-"`
+	RawHadUnclosedThink bool          `json:"-"`
 }
 
 type llmChatRequest struct {
@@ -66,14 +68,22 @@ type llmChatResponse struct {
 }
 
 var (
-	thinkTagRegex         = regexp.MustCompile(`(?is)<think(?:ing)?>.*?</think(?:ing)?>`)
-	unclosedThinkTagRegex = regexp.MustCompile(`(?is)<think(?:ing)?>.*$`)
+	thinkTagRegex         = regexp.MustCompile(`(?is)<(?:think(?:ing)?|thought)>.*?</(?:think(?:ing)?|thought)>`)
+	unclosedThinkTagRegex = regexp.MustCompile(`(?is)<(?:think(?:ing)?|thought)>.*$`)
 )
 
-func stripReasoningBlocks(s string) string {
+func stripReasoningBlocksWithMeta(s string) (string, bool) {
 	cleaned := thinkTagRegex.ReplaceAllString(s, "")
-	cleaned = unclosedThinkTagRegex.ReplaceAllString(cleaned, "")
-	return strings.TrimSpace(cleaned)
+	hadUnclosed := unclosedThinkTagRegex.MatchString(cleaned)
+	if hadUnclosed {
+		cleaned = unclosedThinkTagRegex.ReplaceAllString(cleaned, "")
+	}
+	return strings.TrimSpace(cleaned), hadUnclosed
+}
+
+func stripReasoningBlocks(s string) string {
+	cleaned, _ := stripReasoningBlocksWithMeta(s)
+	return cleaned
 }
 
 // NormalizeOpenAIChatURL converts user-supplied base URLs into a valid
@@ -104,13 +114,13 @@ func NormalizeOpenAIChatURL(raw string) string {
 	return u + "/v1/chat/completions"
 }
 
-func extractMessageText(raw json.RawMessage) string {
+func extractMessageTextWithMeta(raw json.RawMessage) (string, bool) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return ""
+		return "", false
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return stripReasoningBlocks(s)
+		return stripReasoningBlocksWithMeta(s)
 	}
 	var parts []struct {
 		Type string `json:"type"`
@@ -123,9 +133,9 @@ func extractMessageText(raw json.RawMessage) string {
 				sb.WriteString(p.Text)
 			}
 		}
-		return stripReasoningBlocks(sb.String())
+		return stripReasoningBlocksWithMeta(sb.String())
 	}
-	return ""
+	return "", false
 }
 
 func callOpenAICompatible(
@@ -171,8 +181,8 @@ func callOpenAICompatible(
 	var statusCode int
 	var lastErr error
 
-	for attempt := 0; attempt < 2; attempt++ {
-		if attempt > 0 {
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 && lastErr != nil {
 			select {
 			case <-time.After(2 * time.Second):
 			case <-ctx.Done():
@@ -185,7 +195,7 @@ func callOpenAICompatible(
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
-		httpReq.Header.Set("User-Agent", "Nezha-AIOps/1.1")
+		httpReq.Header.Set("User-Agent", "Nezha-AIOps/1.2")
 
 		resp, doErr := client.Do(httpReq)
 		if doErr != nil {
@@ -203,6 +213,19 @@ func callOpenAICompatible(
 		}
 		statusCode = resp.StatusCode
 		respBytes = b
+		// Graceful fallback if a provider rejects large max_tokens (e.g. 16384 -> 8192 -> 4096)
+		if statusCode == 400 && reqPayload.MaxTokens > 4096 && strings.Contains(strings.ToLower(string(b)), "max_tokens") {
+			if reqPayload.MaxTokens > 8192 {
+				reqPayload.MaxTokens = 8192
+			} else {
+				reqPayload.MaxTokens = 4096
+			}
+			if nb, mErr := json.Marshal(reqPayload); mErr == nil {
+				bodyBytes = nb
+				lastErr = nil
+				continue
+			}
+		}
 		if statusCode == 502 || statusCode == 503 || statusCode == 504 {
 			lastErr = fmt.Errorf("模型网关暂时繁忙 (HTTP %d)", statusCode)
 			continue
@@ -234,7 +257,8 @@ func callOpenAICompatible(
 	}
 
 	choice := parsed.Choices[0].Message
-	textContent := extractMessageText(choice.Content)
+	finishReason := strings.ToLower(strings.TrimSpace(parsed.Choices[0].FinishReason))
+	textContent, hadUnclosedThink := extractMessageTextWithMeta(choice.Content)
 
 	var contentVal any = textContent
 	if textContent == "" && len(choice.ToolCalls) > 0 {
@@ -243,10 +267,12 @@ func callOpenAICompatible(
 	}
 
 	return llmChatMessage{
-		Role:             "assistant",
-		Content:          contentVal,
-		ReasoningContent: choice.ReasoningContent,
-		ToolCalls:        choice.ToolCalls,
+		Role:                "assistant",
+		Content:             contentVal,
+		ReasoningContent:    choice.ReasoningContent,
+		ToolCalls:           choice.ToolCalls,
+		FinishReason:        finishReason,
+		RawHadUnclosedThink: hadUnclosedThink,
 	}, nil
 }
 
