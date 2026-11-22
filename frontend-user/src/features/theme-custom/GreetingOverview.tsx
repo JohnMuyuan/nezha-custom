@@ -183,15 +183,68 @@ function pickGreeting(customHolidays: string): string {
 	return chosen;
 }
 
-function formatSiteUptime(startDateStr: string, nowMs: number): string {
-	const start = new Date(startDateStr);
-	if (Number.isNaN(start.getTime())) return "";
-	const diff = Math.max(0, nowMs - start.getTime());
+function formatSiteUptime(startMs: number, nowMs: number): string {
+	if (Number.isNaN(startMs)) return "";
+	const diff = Math.max(0, nowMs - startMs);
 	const d = Math.floor(diff / (1000 * 60 * 60 * 24));
 	const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
 	const m = Math.floor((diff / (1000 * 60)) % 60);
 	const s = Math.floor((diff / 1000) % 60);
 	return `网站已运行 ${d}天 ${h}小时 ${m}分 ${s}秒`;
+}
+
+function SiteUptimeClock({ startDate }: { startDate: string }) {
+	const startMs = useMemo(() => new Date(startDate).getTime(), [startDate]);
+	const [nowMs, setNowMs] = useState(() => Date.now());
+
+	useEffect(() => {
+		if (Number.isNaN(startMs)) return;
+		let timer: ReturnType<typeof setInterval> | null = null;
+
+		const startTimer = () => {
+			if (timer !== null) clearInterval(timer);
+			setNowMs(Date.now());
+			timer = setInterval(() => setNowMs(Date.now()), 1000);
+		};
+		const stopTimer = () => {
+			if (timer !== null) {
+				clearInterval(timer);
+				timer = null;
+			}
+		};
+		const onVis = () => {
+			if (document.visibilityState === "visible") startTimer();
+			else stopTimer();
+		};
+
+		if (
+			typeof document === "undefined" ||
+			document.visibilityState !== "hidden"
+		) {
+			startTimer();
+		}
+		if (typeof document !== "undefined") {
+			document.addEventListener("visibilitychange", onVis);
+		}
+		return () => {
+			stopTimer();
+			if (typeof document !== "undefined") {
+				document.removeEventListener("visibilitychange", onVis);
+			}
+		};
+	}, [startMs]);
+
+	const uptimeText = formatSiteUptime(startMs, nowMs);
+	if (!uptimeText) return null;
+
+	return (
+		<div
+			className="text-[13px] tabular-nums transition-colors"
+			style={{ color: "var(--nz-uptime-color)" }}
+		>
+			{uptimeText}
+		</div>
+	);
 }
 
 export function GreetingOverview() {
@@ -200,17 +253,6 @@ export function GreetingOverview() {
 		() => pickGreeting(greeting.custom_holidays),
 		[greeting.custom_holidays],
 	);
-	const [nowMs, setNowMs] = useState(() => Date.now());
-
-	useEffect(() => {
-		if (!greeting.show_uptime) return;
-		const timer = setInterval(() => setNowMs(Date.now()), 1000);
-		return () => clearInterval(timer);
-	}, [greeting.show_uptime]);
-
-	const uptimeText = greeting.show_uptime
-		? formatSiteUptime(greeting.start_date, nowMs)
-		: "";
 
 	return (
 		<div className="flex flex-col gap-1.5 mb-1">
@@ -226,13 +268,8 @@ export function GreetingOverview() {
 					{message}
 				</div>
 			)}
-			{uptimeText && (
-				<div
-					className="text-[13px] tabular-nums transition-colors"
-					style={{ color: "var(--nz-uptime-color)" }}
-				>
-					{uptimeText}
-				</div>
+			{greeting.show_uptime && (
+				<SiteUptimeClock startDate={greeting.start_date} />
 			)}
 		</div>
 	);

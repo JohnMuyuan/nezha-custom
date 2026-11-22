@@ -62,6 +62,11 @@ export function FinanceWidget({
 		}
 	}, [open]);
 
+	const billingSig = servers
+		.map((s) => `${s.id}:${s.name}:${s.public_note ?? ""}`)
+		.join("|");
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed by billingSig so 1s WS ticks skip re-parsing
 	const summary = useMemo(() => {
 		let monthlyCostCNY = 0;
 		let monthlyOutflowCNY = 0;
@@ -108,7 +113,7 @@ export function FinanceWidget({
 			totalRemainValCNY,
 			details,
 		};
-	}, [servers, rates, remaining_value.default_currency]);
+	}, [billingSig, servers.length, rates, remaining_value.default_currency]);
 
 	if (!open) return null;
 

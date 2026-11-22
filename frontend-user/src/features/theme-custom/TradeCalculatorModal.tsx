@@ -204,13 +204,18 @@ export function TradeCalculatorModal({
 		});
 	}, [open]);
 
+	const billingSig = servers
+		.map((s) => `${s.id}:${s.name}:${s.public_note ?? ""}`)
+		.join("|");
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed by billingSig so 1s WS ticks skip re-parsing
 	const parsedServers = useMemo(() => {
 		return servers
 			.map((s) => parseServerBilling(s))
 			.filter((b): b is NonNullable<typeof b> =>
 				Boolean(b && !b.isFree && b.price > 0),
 			);
-	}, [servers]);
+	}, [billingSig]);
 
 	// Real-time sell calculation
 	const sellCalc = useMemo(() => {

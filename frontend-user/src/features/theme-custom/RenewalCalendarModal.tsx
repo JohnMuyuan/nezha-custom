@@ -1,56 +1,16 @@
-import {
-	AlertTriangle,
-	Calendar,
-	ChevronLeft,
-	ChevronRight,
-	X,
-} from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { Calendar, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useId, useMemo, useState } from "react";
 import type { NezhaServer } from "@/types/nezha-api";
 import { CustomModalDialog } from "./CustomModalDialog";
-import { type BillingPeriodType, parseServerBilling } from "./server-billing";
+import { buildRenewalItems, type RenewalServerItem } from "./ExpiryAlertToasts";
 import { useThemeConfig } from "./theme-config";
 
 type CalendarView = "year" | "month" | "week";
-
-interface RenewalServerItem {
-	id: number;
-	name: string;
-	remainDays: number;
-	year: number;
-	month: number; // 0-11
-	date: number;
-	cycle: BillingPeriodType | "none";
-}
 
 interface CalendarEvent extends RenewalServerItem {
 	eventDate: Date;
 	isUrgent: boolean;
 	isProjected: boolean;
-}
-
-function buildRenewalItems(servers: NezhaServer[]): RenewalServerItem[] {
-	const items: RenewalServerItem[] = [];
-	const today = new Date();
-	today.setHours(0, 0, 0, 0);
-
-	for (const srv of servers) {
-		const b = parseServerBilling(srv);
-		if (!b || b.isNeverExpire || b.isOneTime || b.remainingDays === null) {
-			continue;
-		}
-		const exp = new Date(today.getTime() + b.remainingDays * 86_400_000);
-		items.push({
-			id: srv.id,
-			name: srv.name,
-			remainDays: b.remainingDays,
-			year: exp.getFullYear(),
-			month: exp.getMonth(),
-			date: exp.getDate(),
-			cycle: b.period,
-		});
-	}
-	return items;
 }
 
 function projectEvents(
@@ -115,7 +75,11 @@ export function RenewalCalendarModal({
 	const [view, setView] = useState<CalendarView>("month");
 	const [cursor, setCursor] = useState(() => new Date());
 
-	const items = useMemo(() => buildRenewalItems(servers), [servers]);
+	const billingSig = servers
+		.map((s) => `${s.id}:${s.name}:${s.public_note ?? ""}`)
+		.join("|");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed by billingSig to skip 1s WS re-parsing
+	const items = useMemo(() => buildRenewalItems(servers), [billingSig]);
 	const allEvents = useMemo(
 		() => projectEvents(items, renewal_calendar.urgent_days),
 		[items, renewal_calendar.urgent_days],
@@ -427,89 +391,5 @@ export function RenewalCalendarModal({
 				)}
 			</div>
 		</CustomModalDialog>
-	);
-}
-
-export function ExpiryAlertToasts({ servers }: { servers: NezhaServer[] }) {
-	const { renewal_calendar } = useThemeConfig();
-	const [dismissedIds, setDismissedIds] = useState<Set<number>>(new Set());
-	const [autoHidden, setAutoHidden] = useState(false);
-
-	const urgentServers = useMemo(() => {
-		if (!renewal_calendar.enable_expiry_alerts) return [];
-		const items = buildRenewalItems(servers);
-		return items
-			.filter((s) => s.remainDays <= renewal_calendar.urgent_days)
-			.sort((a, b) => a.remainDays - b.remainDays)
-			.slice(0, Math.max(1, renewal_calendar.max_alert_count || 3));
-	}, [
-		servers,
-		renewal_calendar.enable_expiry_alerts,
-		renewal_calendar.urgent_days,
-		renewal_calendar.max_alert_count,
-	]);
-
-	useEffect(() => {
-		if (urgentServers.length === 0) return;
-		const timer = setTimeout(() => setAutoHidden(true), 8500);
-		return () => clearTimeout(timer);
-	}, [urgentServers.length]);
-
-	if (
-		!renewal_calendar.enable_expiry_alerts ||
-		autoHidden ||
-		urgentServers.length === 0
-	) {
-		return null;
-	}
-
-	const visible = urgentServers.filter((s) => !dismissedIds.has(s.id));
-	if (visible.length === 0) return null;
-
-	return (
-		<div
-			role="status"
-			aria-live="polite"
-			className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-sm:inset-x-3 max-sm:bottom-20"
-		>
-			{visible.map((srv) => {
-				const dateStr = `${srv.year}年${srv.month + 1}月${srv.date}日`;
-				return (
-					<div
-						key={srv.id}
-						className="relative w-[310px] max-w-full rounded-lg border border-border/70 border-l-4 border-l-red-500 bg-card/95 px-4 py-3 shadow-xl backdrop-blur-md"
-					>
-						<button
-							type="button"
-							aria-label={`关闭 ${srv.name} 到期提醒`}
-							onClick={() =>
-								setDismissedIds((prev) => new Set(prev).add(srv.id))
-							}
-							className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
-						>
-							<X className="h-4 w-4" />
-						</button>
-						<div className="mb-1 flex items-center gap-1.5 text-xs font-extrabold text-red-500">
-							<AlertTriangle className="h-4 w-4" />
-							资产续费预警
-						</div>
-						<div className="pr-5 text-xs leading-relaxed text-foreground">
-							<b className="break-all">{srv.name}</b>
-							<br />
-							{srv.remainDays < 0 ? (
-								<b className="text-muted-foreground">已过期</b>
-							) : srv.remainDays === 0 ? (
-								<b className="text-red-500">将于今天</b>
-							) : (
-								<>
-									将于 <b>{srv.remainDays}天后</b>
-								</>
-							)}
-							（{dateStr}）到期。
-						</div>
-					</div>
-				);
-			})}
-		</div>
 	);
 }

@@ -3,9 +3,16 @@ services:
     image: ghcr.io/johnmuyuan/nezha-custom:latest
     container_name: nezha-dashboard
     restart: always
+    mem_limit: 256m
     volumes:
       - ./data:/dashboard/data
     ports:
       - "8008:8008"
     environment:
       - TZ=Asia/Shanghai
+      - GOGC=50
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

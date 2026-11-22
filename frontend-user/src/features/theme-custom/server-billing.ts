@@ -290,11 +290,19 @@ export interface ServerCycleTraffic {
 	to: string;
 }
 
+const cycleTrafficMapCache = new WeakMap<
+	CycleTransferStats,
+	Map<number, ServerCycleTraffic>
+>();
+
 export function extractCycleTrafficMap(
 	cycleStats?: CycleTransferStats | null,
 ): Map<number, ServerCycleTraffic> {
+	if (!cycleStats) return new Map<number, ServerCycleTraffic>();
+	const cached = cycleTrafficMapCache.get(cycleStats);
+	if (cached) return cached;
+
 	const map = new Map<number, ServerCycleTraffic>();
-	if (!cycleStats) return map;
 
 	for (const [cycleId, cycle] of Object.entries(cycleStats)) {
 		if (!cycle?.server_name || !cycle?.transfer) continue;
@@ -337,6 +345,7 @@ export function extractCycleTrafficMap(
 			}
 		}
 	}
+	cycleTrafficMapCache.set(cycleStats, map);
 	return map;
 }
 

@@ -55,8 +55,8 @@ dialog.nz-custom-modal {
 	background-color: var(--nz-card-glass);
 	color: hsl(var(--foreground));
 	box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
-	backdrop-filter: blur(16px);
-	-webkit-backdrop-filter: blur(16px);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
 	max-width: min(95vw, 760px);
 	max-height: 90dvh;
 	overflow: hidden;
@@ -113,6 +113,23 @@ dialog.nz-custom-modal::backdrop {
 	background: rgba(156, 163, 175, 0.16);
 }
 
+/* Defer off-screen rendering for below-the-fold server cards (modern-web-guidance) */
+.nz-deferred-card {
+	content-visibility: auto;
+	contain-intrinsic-size: auto none auto 168px;
+}
+
+.nz-deferred-card-inline {
+	content-visibility: auto;
+	contain-intrinsic-size: auto none auto 84px;
+}
+
+/* Earth globe WebGL host for contentvisibilityautostatechange pausing */
+.nz-earth-canvas-host {
+	content-visibility: auto;
+	contain-intrinsic-size: auto none auto 520px;
+}
+
 /* Mac-style floating capsule dock */
 .nz-mac-dock {
 	position: fixed;
@@ -125,11 +142,10 @@ dialog.nz-custom-modal::backdrop {
 	background-color: var(--nz-card-glass);
 	border: 1px solid var(--nz-border-soft);
 	border-radius: 999px;
-	backdrop-filter: blur(14px);
-	-webkit-backdrop-filter: blur(14px);
-	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
 	z-index: 45;
-	transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .nz-mac-dock.pos-right {
@@ -152,15 +168,22 @@ dialog.nz-custom-modal::backdrop {
 	justify-content: center;
 	cursor: pointer;
 	transition:
-		transform 0.2s ease,
 		background-color 0.2s ease,
 		color 0.2s ease;
+	@media (prefers-reduced-motion: no-preference) {
+		transition:
+			transform 0.2s ease,
+			background-color 0.2s ease,
+			color 0.2s ease;
+	}
 }
 
 .nz-dock-btn:hover {
 	background-color: hsl(var(--muted));
 	color: hsl(var(--primary));
-	transform: scale(1.08);
+	@media (prefers-reduced-motion: no-preference) {
+		transform: scale(1.08);
+	}
 }
 
 .nz-dock-btn.is-active {
@@ -199,12 +222,14 @@ dialog.nz-custom-modal::backdrop {
 	border-radius: 16px;
 	background-color: var(--nz-card-glass);
 	border: 1px solid var(--nz-border-soft);
-	backdrop-filter: blur(14px);
-	-webkit-backdrop-filter: blur(14px);
-	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
 	color: hsl(var(--foreground));
-	animation: nz-slide-in-left 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)
-		forwards;
+	@media (prefers-reduced-motion: no-preference) {
+		animation: nz-slide-in-left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275)
+			forwards;
+	}
 }
 
 @media (max-width: 768px) {
@@ -238,33 +263,51 @@ dialog.nz-custom-modal::backdrop {
 	opacity: 0.85;
 }
 
-/* Earth globe user marker pulse */
+/* Earth globe user marker pulse (compositor-only transform + opacity) */
 .nz-earth-user-marker {
+	position: relative;
 	width: 34px;
 	height: 34px;
 	border-radius: 999px;
 	background: var(--nz-card-glass);
 	border: 2px solid #3b82f6;
-	overflow: hidden;
+	overflow: visible;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	animation: nz-earth-pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+	transform: translate(-50%, -50%);
 }
 
-@keyframes nz-earth-pulse {
-	0% {
-		box-shadow: 0 0 0 0 rgba(var(--nz-accent-rgb), 0.7);
-		transform: translate(-50%, -50%) scale(1);
+.nz-earth-user-marker > img {
+	border-radius: 999px;
+}
+
+.nz-earth-user-marker::after {
+	content: "";
+	position: absolute;
+	inset: -3px;
+	border-radius: 999px;
+	border: 2px solid rgba(var(--nz-accent-rgb), 0.7);
+	pointer-events: none;
+	opacity: 0;
+	@media (prefers-reduced-motion: no-preference) {
+		animation: nz-earth-pulse-ring 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
 	}
-	50% {
-		box-shadow: 0 0 0 14px rgba(var(--nz-accent-rgb), 0);
-		transform: translate(-50%, -50%) scale(1.12);
+}
+
+@keyframes nz-earth-pulse-ring {
+	0% {
+		transform: scale(1);
+		opacity: 0.75;
+	}
+	70% {
+		transform: scale(1.65);
+		opacity: 0;
 	}
 	100% {
-		box-shadow: 0 0 0 0 rgba(var(--nz-accent-rgb), 0);
-		transform: translate(-50%, -50%) scale(1);
+		transform: scale(1.65);
+		opacity: 0;
 	}
 }
 

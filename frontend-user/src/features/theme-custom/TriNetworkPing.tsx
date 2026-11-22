@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { NezhaMonitor } from "@/types/nezha-api";
 import { usePingBoardState } from "./theme-config";
@@ -115,9 +115,14 @@ const ISP_COLOR_CLASSES: Record<IspKey, { dot: string; text: string }> = {
 	cm: { dot: "bg-green-500", text: "text-green-500" },
 };
 
-export function CardPingBoard({ serverId }: { serverId: number }) {
+export const CardPingBoard = memo(function CardPingBoard({
+	serverId,
+}: {
+	serverId: number;
+}) {
 	const { pingEnabled, refreshIntervalSec } = usePingBoardState();
 	const containerRef = useRef<HTMLDivElement>(null);
+	const abortRef = useRef<AbortController | null>(null);
 	const [isVisible, setIsVisible] = useState(false);
 	const [grouped, setGrouped] = useState<GroupedPings | null>(null);
 
@@ -145,9 +150,13 @@ export function CardPingBoard({ serverId }: { serverId: number }) {
 
 	const fetchPing = useCallback(async () => {
 		if (!pingEnabled) return;
+		abortRef.current?.abort();
+		const controller = new AbortController();
+		abortRef.current = controller;
 		try {
 			const res = await fetch(`/api/v1/server/${serverId}/service?period=1d`, {
 				credentials: "same-origin",
+				signal: controller.signal,
 			});
 			if (!res.ok) return;
 			const json = (await res.json()) as {
@@ -158,11 +167,11 @@ export function CardPingBoard({ serverId }: { serverId: number }) {
 					? json.data
 					: Object.values(json.data)
 				: [];
-			if (list.length > 0) {
+			if (list.length > 0 && !controller.signal.aborted) {
 				setGrouped(groupMonitors(list));
 			}
 		} catch {
-			// Ignore transient fetch errors
+			// Ignore aborted or transient fetch errors
 		}
 	}, [pingEnabled, serverId]);
 
@@ -175,7 +184,10 @@ export function CardPingBoard({ serverId }: { serverId: number }) {
 				void fetchPing();
 			}
 		}, ms);
-		return () => clearInterval(timer);
+		return () => {
+			clearInterval(timer);
+			abortRef.current?.abort();
+		};
 	}, [pingEnabled, isVisible, refreshIntervalSec, fetchPing]);
 
 	if (!pingEnabled) return null;
@@ -250,4 +262,4 @@ export function CardPingBoard({ serverId }: { serverId: number }) {
 			})}
 		</div>
 	);
-}
+});

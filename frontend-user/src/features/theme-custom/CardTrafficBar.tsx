@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useSyncExternalStore } from "react";
 import { fetchService } from "@/lib/nezha-api";
 import {
 	calculateRemainingDaysUntil,
@@ -10,60 +10,185 @@ import {
 } from "./server-billing";
 import { useThemeConfig } from "./theme-config";
 
-export function CardTrafficBar({ serverId }: { serverId: number }) {
+interface SlideTickerState {
+	slideIndex: number;
+	fading: boolean;
+}
+
+// Single shared clock across ALL server cards (1 timer instead of N timers)
+class SharedTrafficTicker {
+	private state: SlideTickerState = { slideIndex: 0, fading: false };
+	private listeners = new Set<() => void>();
+	private intervalTimer: ReturnType<typeof setInterval> | null = null;
+	private swapTimer: ReturnType<typeof setTimeout> | null = null;
+	private intervalMs = 5000;
+	private durationMs = 500;
+	private visBound = false;
+
+	private handleVisibility = () => {
+		if (document.visibilityState === "visible") {
+			this.ensureRunning();
+		} else {
+			this.stopTimers();
+			if (this.state.fading) {
+				this.state = { ...this.state, fading: false };
+				this.emit();
+			}
+		}
+	};
+
+	private emit() {
+		for (const listener of this.listeners) {
+			listener();
+		}
+	}
+
+	private stopTimers() {
+		if (this.intervalTimer !== null) {
+			clearInterval(this.intervalTimer);
+			this.intervalTimer = null;
+		}
+		if (this.swapTimer !== null) {
+			clearTimeout(this.swapTimer);
+			this.swapTimer = null;
+		}
+	}
+
+	private ensureRunning() {
+		this.stopTimers();
+		if (this.listeners.size === 0 || this.intervalMs <= 0) return;
+		if (
+			typeof document !== "undefined" &&
+			document.visibilityState === "hidden"
+		) {
+			return;
+		}
+		const reducedMotion =
+			typeof window !== "undefined" &&
+			typeof window.matchMedia === "function" &&
+			window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+		const halfDuration = reducedMotion
+			? 0
+			: Math.max(0, Math.floor(this.durationMs / 2));
+
+		this.intervalTimer = setInterval(() => {
+			if (
+				typeof document !== "undefined" &&
+				document.visibilityState === "hidden"
+			) {
+				return;
+			}
+			if (halfDuration > 0) {
+				this.state = { ...this.state, fading: true };
+				this.emit();
+				this.swapTimer = setTimeout(() => {
+					this.state = {
+						slideIndex: (this.state.slideIndex + 1) % 4,
+						fading: false,
+					};
+					this.emit();
+				}, halfDuration);
+			} else {
+				this.state = {
+					slideIndex: (this.state.slideIndex + 1) % 4,
+					fading: false,
+				};
+				this.emit();
+			}
+		}, this.intervalMs);
+	}
+
+	configure(intervalMs: number, durationMs: number) {
+		const nextInterval = Math.max(0, intervalMs);
+		const nextDuration = Math.max(0, durationMs);
+		if (nextInterval !== this.intervalMs || nextDuration !== this.durationMs) {
+			this.intervalMs = nextInterval;
+			this.durationMs = nextDuration;
+			if (this.listeners.size > 0) {
+				this.ensureRunning();
+			}
+		}
+	}
+
+	subscribe = (listener: () => void) => {
+		this.listeners.add(listener);
+		if (!this.visBound && typeof document !== "undefined") {
+			this.visBound = true;
+			document.addEventListener("visibilitychange", this.handleVisibility);
+		}
+		if (this.listeners.size === 1) {
+			this.ensureRunning();
+		}
+		return () => {
+			this.listeners.delete(listener);
+			if (this.listeners.size === 0) {
+				this.stopTimers();
+				if (this.visBound && typeof document !== "undefined") {
+					this.visBound = false;
+					document.removeEventListener(
+						"visibilitychange",
+						this.handleVisibility,
+					);
+				}
+			}
+		};
+	};
+
+	getSnapshot = () => this.state;
+}
+
+const sharedTicker = new SharedTrafficTicker();
+const STATIC_SLIDE_STATE: SlideTickerState = { slideIndex: 0, fading: false };
+const noopSubscribe = () => () => {};
+
+function useSharedTrafficSlide(
+	active: boolean,
+	intervalMs: number,
+	durationMs: number,
+): SlideTickerState {
+	if (active) {
+		sharedTicker.configure(intervalMs, durationMs);
+	}
+	return useSyncExternalStore(
+		active && intervalMs > 0 ? sharedTicker.subscribe : noopSubscribe,
+		active && intervalMs > 0
+			? sharedTicker.getSnapshot
+			: () => STATIC_SLIDE_STATE,
+		() => STATIC_SLIDE_STATE,
+	);
+}
+
+export const CardTrafficBar = memo(function CardTrafficBar({
+	serverId,
+}: {
+	serverId: number;
+}) {
 	const { traffic_bar } = useThemeConfig();
+	const refreshMs = Math.max(5000, traffic_bar.interval_ms || 60000);
 
 	const { data: serviceData } = useQuery({
 		queryKey: ["service"],
 		queryFn: () => fetchService(),
-		refetchInterval: Math.max(5000, traffic_bar.interval_ms || 60000),
+		refetchInterval: refreshMs,
+		refetchIntervalInBackground: false,
+		staleTime: Math.min(refreshMs, 30000),
 		retry: false,
 		enabled: traffic_bar.enabled,
 	});
 
-	const statsMap = useMemo(
-		() => extractCycleTrafficMap(serviceData?.data?.cycle_transfer_stats),
-		[serviceData?.data?.cycle_transfer_stats],
+	const serverStat = useMemo(
+		() =>
+			extractCycleTrafficMap(serviceData?.data?.cycle_transfer_stats).get(
+				serverId,
+			),
+		[serviceData?.data?.cycle_transfer_stats, serverId],
 	);
 
-	const serverStat = statsMap.get(serverId);
-
-	const [slideIndex, setSlideIndex] = useState(0);
-	const [fading, setFading] = useState(false);
-
-	useEffect(() => {
-		if (!traffic_bar.enabled || !serverStat) return;
-		const interval = traffic_bar.toggle_interval_ms;
-		if (!interval || interval <= 0) return;
-
-		const halfDuration = Math.max(
-			0,
-			Math.floor((traffic_bar.duration_ms || 500) / 2),
-		);
-		let swapTimer: ReturnType<typeof setTimeout> | undefined;
-
-		const timer = setInterval(() => {
-			if (halfDuration > 0) {
-				setFading(true);
-				swapTimer = setTimeout(() => {
-					setSlideIndex((prev) => (prev + 1) % 4);
-					setFading(false);
-				}, halfDuration);
-			} else {
-				setSlideIndex((prev) => (prev + 1) % 4);
-			}
-		}, interval);
-
-		return () => {
-			clearInterval(timer);
-			if (swapTimer) clearTimeout(swapTimer);
-		};
-	}, [
-		traffic_bar.enabled,
+	const { slideIndex, fading } = useSharedTrafficSlide(
+		Boolean(traffic_bar.enabled && serverStat),
 		traffic_bar.toggle_interval_ms,
-		traffic_bar.duration_ms,
-		serverStat,
-	]);
+		traffic_bar.duration_ms || 500,
+	);
 
 	if (!traffic_bar.enabled || !serverStat) return null;
 
@@ -136,4 +261,4 @@ export function CardTrafficBar({ serverId }: { serverId: number }) {
 			</div>
 		</div>
 	);
-}
+});
