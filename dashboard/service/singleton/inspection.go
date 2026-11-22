@@ -367,14 +367,16 @@ func (ic *InspectionClass) executeInspection(serverID uint64, reqScopes []string
 		ic.mu.Unlock()
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	release, err := ic.acquireSemaphore(ctx)
+	queueCtx, queueCancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	release, err := ic.acquireSemaphore(queueCtx)
+	queueCancel()
 	if err != nil {
 		return
 	}
 	defer release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
 
 	server, ok := ServerShared.Get(serverID)
 	if !ok || server == nil || server.GetTaskStream() == nil {
@@ -660,7 +662,7 @@ run_stack() {
       echo "MEDIA|$IPVER|chatgpt|no|$CG_LOC"
       ;;
     *)
-      if [ "$CG_IOS" = "200" ] || [ "$CG_IOS" = "403" ] && [ "$CG_WEB" != "451" ] && [ -n "$CG_LOC" ]; then
+      if { [ "$CG_IOS" = "200" ] || [ "$CG_IOS" = "403" ]; } && [ "$CG_WEB" != "451" ] && [ -n "$CG_LOC" ]; then
         if [ "$CG_IOS" = "200" ]; then
           echo "MEDIA|$IPVER|chatgpt|yes|$CG_LOC"
         else
@@ -822,12 +824,14 @@ trace_target() {
   ISP="$1"
   TARGET="$2"
   OUT=""
+  TO=""
+  command -v timeout >/dev/null 2>&1 && TO="timeout 12"
   if [ "$TOOL" = "mtr" ]; then
-    OUT=$(mtr -4 -rn -c 1 -m 18 "$TARGET" 2>/dev/null)
+    OUT=$($TO mtr -4 -rn -c 1 -m 18 "$TARGET" 2>/dev/null)
   elif [ "$TOOL" = "traceroute" ]; then
-    OUT=$(traceroute -4 -n -q 1 -w 1 -m 18 "$TARGET" 2>/dev/null)
+    OUT=$($TO traceroute -4 -n -q 1 -w 1 -m 18 "$TARGET" 2>/dev/null)
   else
-    OUT=$(tracepath -4 -n -m 18 "$TARGET" 2>/dev/null)
+    OUT=$($TO tracepath -4 -n -m 18 "$TARGET" 2>/dev/null)
   fi
   IPS=$(echo "$OUT" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | awk '!seen[$0]++' | tr '\n' ',')
   echo "ROUTE|$ISP|$TARGET|$IPS"
@@ -964,11 +968,11 @@ UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.
 if ! command -v curl >/dev/null 2>&1; then echo "ERR|no_curl"; exit 0; fi
 
 # 1. IP metadata (primary: api.ipapi.is, fallback: ip-api.com)
-IPJSON=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "https://api.ipapi.is/" 2>/dev/null)
+IPJSON=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "https://api.ipapi.is/" 2>/dev/null | tr -d '\r\n')
 if [ -n "$IPJSON" ] && echo "$IPJSON" | grep -q '"ip"'; then
   echo "IPAPIIS|$IPJSON"
 else
-  IPFB=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,as,hosting,proxy,mobile,query" 2>/dev/null)
+  IPFB=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,as,hosting,proxy,mobile,query" 2>/dev/null | tr -d '\r\n')
   echo "IPAPICOM|$IPFB"
 fi
 
