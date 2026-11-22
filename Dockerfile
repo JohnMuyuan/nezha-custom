@@ -47,9 +47,11 @@ RUN if [ "$WITH_COMMUNITY_THEMES" = "true" ]; then \
       bash ./scripts/prepare-frontends.sh --community-only; \
     fi
 
-# Optionally fetch IPInfo GeoIP country database
+# Fetch GeoIP country database (IPInfo when token provided, otherwise free GeoLite2-Country mirror)
 RUN if [ -n "$IPINFO_TOKEN" ]; then \
       curl -fsSL "https://ipinfo.io/data/free/country.mmdb?token=${IPINFO_TOKEN}" -o ./dashboard/pkg/geoip/geoip.db; \
+    else \
+      curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-Country.mmdb" -o ./dashboard/pkg/geoip/geoip.db; \
     fi
 
 WORKDIR /src/dashboard
