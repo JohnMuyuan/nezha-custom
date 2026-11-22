@@ -84,9 +84,11 @@ const router = createBrowserRouter([
             {
                 path: "/dashboard/alert-rule",
                 element: (
-                    <NotificationProvider withNotifierGroup>
-                        <AlertRulePage />
-                    </NotificationProvider>
+                    <ServerProvider withServer>
+                        <NotificationProvider withNotifierGroup>
+                            <AlertRulePage />
+                        </NotificationProvider>
+                    </ServerProvider>
                 ),
             },
             {
@@ -143,7 +145,11 @@ const router = createBrowserRouter([
             },
             {
                 path: "/dashboard/settings/theme-custom",
-                element: <ThemeCustomPage />,
+                element: (
+                    <NotificationProvider withNotifierGroup>
+                        <ThemeCustomPage />
+                    </NotificationProvider>
+                ),
             },
             {
                 path: "/dashboard/settings/frontends",

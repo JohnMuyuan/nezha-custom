@@ -1,9 +1,9 @@
 import { swrFetcher } from "@/api/api"
 import { deleteNotificationGroups } from "@/api/notification-group"
 import { ActionButtonGroup } from "@/components/action-button-group"
-import { GroupTab } from "@/components/group-tab"
 import { HeaderButtonGroup } from "@/components/header-button-group"
 import { NotificationGroupCard } from "@/components/notification-group"
+import { NotificationFlowGuide, NotificationTab } from "@/components/notification-tab"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
     Table,
@@ -13,6 +13,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
+import { useNotification } from "@/hooks/useNotfication"
 import { selectableTableFeatures } from "@/lib/table"
 import { ModelNotificationGroupResponseItem } from "@/types"
 import { ColumnDef, flexRender, useTable } from "@tanstack/react-table"
@@ -32,6 +33,15 @@ export default function NotificationGroupPage() {
         "/api/v1/notification-group",
         swrFetcher,
     )
+    const { notifiers } = useNotification()
+
+    const notifierNameMap = useMemo(() => {
+        const m = new Map<number, string>()
+        for (const n of notifiers ?? []) {
+            m.set(n.id, n.name)
+        }
+        return m
+    }, [notifiers])
 
     useEffect(() => {
         if (error)
@@ -71,23 +81,33 @@ export default function NotificationGroupPage() {
             accessorFn: (row) => row.group.id,
         },
         {
-            header: t("Name"),
+            header: "通知分组名称",
             accessorKey: "name",
             accessorFn: (row) => row.group.name,
             cell: ({ row }) => {
                 const s = row.original
-                return <div className="max-w-48 whitespace-normal break-words">{s.group.name}</div>
+                return <div className="font-medium">{s.group.name}</div>
             },
         },
         {
-            header: t("Notifier") + "(ID)",
+            header: "包含的推送渠道",
             accessorKey: "notifications",
             accessorFn: (row) => row.notifications,
             cell: ({ row }) => {
-                const s = row.original
+                const ids = row.original.notifications || []
+                if (ids.length === 0) {
+                    return <span className="text-xs text-muted-foreground">尚未勾选渠道</span>
+                }
                 return (
-                    <div className="max-w-48 whitespace-normal break-words">
-                        <span>{(s.notifications || []).join(",")}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                        {ids.map((id) => (
+                            <span
+                                key={id}
+                                className="rounded-md border bg-muted/60 px-2 py-0.5 text-xs"
+                            >
+                                {notifierNameMap.get(id) || `渠道 #${id}`}
+                            </span>
+                        ))}
                     </div>
                 )
             },
@@ -126,11 +146,11 @@ export default function NotificationGroupPage() {
     const selectedRows = table.getSelectedRowModel().rows
 
     return (
-        <div className="px-3">
-            <div className="flex mt-6 mb-4">
-                <GroupTab className="flex-1 mr-4 sm:max-w-[40%]" />
+        <div className="mx-auto max-w-5xl px-3 pb-8">
+            <div className="mt-6 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <NotificationTab className="w-full sm:max-w-xl" />
                 <HeaderButtonGroup
-                    className="flex ml-auto self-end sm:self-auto gap-2 flex-wrap shrink-0"
+                    className="flex gap-2 self-end sm:self-auto shrink-0"
                     delete={{
                         fn: deleteNotificationGroups,
                         id: selectedRows.map((r) => r.original.group.id),
@@ -141,22 +161,22 @@ export default function NotificationGroupPage() {
                 </HeaderButtonGroup>
             </div>
 
+            <NotificationFlowGuide currentStep={2} />
+
             <Table>
                 <TableHeader>
                     {table.getHeaderGroups().map((headerGroup) => (
                         <TableRow key={headerGroup.id}>
-                            {headerGroup.headers.map((header) => {
-                                return (
-                                    <TableHead key={header.id} className="text-sm">
-                                        {header.isPlaceholder
-                                            ? null
-                                            : flexRender(
-                                                  header.column.columnDef.header,
-                                                  header.getContext(),
-                                              )}
-                                    </TableHead>
-                                )
-                            })}
+                            {headerGroup.headers.map((header) => (
+                                <TableHead key={header.id} className="text-sm">
+                                    {header.isPlaceholder
+                                        ? null
+                                        : flexRender(
+                                              header.column.columnDef.header,
+                                              header.getContext(),
+                                          )}
+                                </TableHead>
+                            ))}
                         </TableRow>
                     ))}
                 </TableHeader>
@@ -169,18 +189,27 @@ export default function NotificationGroupPage() {
                         </TableRow>
                     ) : table.getRowModel().rows?.length ? (
                         table.getRowModel().rows.map((row) => (
-                            <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                            <TableRow
+                                key={row.id}
+                                data-state={row.getIsSelected() && "selected"}
+                            >
                                 {row.getVisibleCells().map((cell) => (
                                     <TableCell key={cell.id} className="text-xsm">
-                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        {flexRender(
+                                            cell.column.columnDef.cell,
+                                            cell.getContext(),
+                                        )}
                                     </TableCell>
                                 ))}
                             </TableRow>
                         ))
                     ) : (
                         <TableRow>
-                            <TableCell colSpan={columns.length} className="h-24 text-center">
-                                {t("NoResults")}
+                            <TableCell
+                                colSpan={columns.length}
+                                className="h-28 text-center text-sm text-muted-foreground"
+                            >
+                                还没有任何通知分组，点击右上角「新建通知分组」并勾选你刚才创建的推送渠道即可！
                             </TableCell>
                         </TableRow>
                     )}

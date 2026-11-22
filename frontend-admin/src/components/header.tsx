@@ -211,6 +211,7 @@ export default function Header() {
                                     asChild
                                     active={
                                         location.pathname === "/dashboard/notification" ||
+                                        location.pathname === "/dashboard/notification-group" ||
                                         location.pathname === "/dashboard/alert-rule"
                                     }
                                     className={navigationMenuTriggerStyle()}
@@ -239,10 +240,7 @@ export default function Header() {
                             <NavigationMenuItem>
                                 <NzNavigationMenuLink
                                     asChild
-                                    active={
-                                        location.pathname === "/dashboard/server-group" ||
-                                        location.pathname === "/dashboard/notification-group"
-                                    }
+                                    active={location.pathname === "/dashboard/server-group"}
                                     className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/server-group">{t("Group")}</Link>
