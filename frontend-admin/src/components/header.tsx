@@ -71,21 +71,22 @@ export default function Header() {
     const disableAnimatedMan = window.DisableAnimatedMan as boolean
 
     return isDesktop ? (
-        <header className="flex pt-8 px-4 dark:bg-black/40 bg-muted border-b-[1px] overflow-visible">
-            <NavigationMenu className="flex flex-col items-start relative max-w-5xl mx-auto">
+        <header className="flex overflow-visible border-b-[1px] bg-muted px-4 pt-7 dark:bg-black/40">
+            <NavigationMenu className="relative mx-auto flex w-full max-w-6xl flex-col items-start">
                 {!disableAnimatedMan && (
                     <img
                         className={cn(
-                            "absolute right-0 z-[9999] top-11 w-20 scale-100 pointer-events-none",
+                            "pointer-events-none select-none hidden xl:block absolute right-1 top-10 z-20 w-[72px]",
                             {
-                                hidden: location.pathname === "/dashboard/login",
+                                "!hidden": location.pathname === "/dashboard/login",
                             },
                         )}
-                        alt={"animated-man"}
+                        alt=""
+                        aria-hidden="true"
                         src={"/dashboard/animated-man.webp"}
                     />
                 )}
-                <section className="w-full flex items-center  justify-between">
+                <section className="flex w-full items-center justify-between">
                     <div className="flex justify-between items-center w-full">
                         <NavigationMenuLink
                             asChild
@@ -173,40 +174,37 @@ export default function Header() {
                         </div>
                     </div>
                 </section>
-                <div className="flex mt-4 ml-4">
+                <div className="mt-4 ml-2 flex">
                     <Overview />
                 </div>
-                <div className="flex mt-4 list-none">
+                <div className="mt-4 flex w-full list-none items-center gap-0.5 overflow-x-auto pb-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:w-[calc(100%-5.5rem)]">
                     {profile && (
                         <>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={location.pathname === "/dashboard"}
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard">{t("Server")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={location.pathname === "/dashboard/service"}
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/service">{t("Service")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={location.pathname === "/dashboard/cron"}
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/cron">{t("Task")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={
@@ -214,74 +212,67 @@ export default function Header() {
                                         location.pathname === "/dashboard/notification-group" ||
                                         location.pathname === "/dashboard/alert-rule"
                                     }
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/notification">{t("Notification")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={location.pathname === "/dashboard/ddns"}
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/ddns">{t("DDNS")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={location.pathname === "/dashboard/nat"}
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/nat">{t("NATT")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={location.pathname === "/dashboard/server-group"}
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/server-group">{t("Group")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
-                            <NavigationMenuItem>
+                            <NavigationMenuItem className="shrink-0">
                                 <NzNavigationMenuLink
                                     asChild
                                     active={location.pathname === "/dashboard/transfer"}
-                                    className={navigationMenuTriggerStyle()}
                                 >
                                     <Link to="/dashboard/transfer">{t("Transfer.Title")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
                             {profile.role === 0 && (
                                 <>
-                                    <NavigationMenuItem>
+                                    <NavigationMenuItem className="shrink-0">
                                         <NzNavigationMenuLink
                                             asChild
                                             active={location.pathname === "/dashboard/ai-ops"}
-                                            className={navigationMenuTriggerStyle()}
                                         >
                                             <Link
                                                 to="/dashboard/ai-ops"
                                                 className="font-semibold text-primary"
                                             >
-                                                🤖 AI 运维助手
+                                                🤖 AI 运维
                                             </Link>
                                         </NzNavigationMenuLink>
                                     </NavigationMenuItem>
-                                    <NavigationMenuItem>
+                                    <NavigationMenuItem className="shrink-0">
                                         <NzNavigationMenuLink
                                             asChild
                                             active={location.pathname === "/dashboard/migration"}
-                                            className={navigationMenuTriggerStyle()}
                                         >
                                             <Link
                                                 to="/dashboard/migration"
                                                 className="font-semibold"
                                             >
-                                                🧳 备份与搬家
+                                                🧳 备份搬家
                                             </Link>
                                         </NzNavigationMenuLink>
                                     </NavigationMenuItem>

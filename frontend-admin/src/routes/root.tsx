@@ -41,7 +41,7 @@ export default function Root() {
             <section className="text-sm mx-auto h-full flex flex-col justify-between">
                 <div>
                     <Header />
-                    <div className="max-w-5xl mx-auto">
+                    <div className="mx-auto max-w-6xl">
                         <Outlet />
                     </div>
                 </div>
