@@ -196,3 +196,46 @@ MISSING /etc/ld.so.preload
 		t.Fatalf("expected second alert to be directToLarge security_tamper, got %+v", alerts[1])
 	}
 }
+
+func TestWrapCommandAndHistoryCoalesce(t *testing.T) {
+	linuxSrv := &model.Server{
+		Common: model.Common{ID: 26},
+		Name:   "Sad-us plus CN2 Year",
+		Host:   &model.Host{Platform: "debian"},
+	}
+	raw := "set -euo pipefail\ndocker ps --format '{{.Names}}'"
+	wrapped := wrapCommandForAgent(linuxSrv, raw)
+	if wrapped == raw {
+		t.Fatal("expected Linux command to be wrapped in base64 bash runner")
+	}
+
+	winSrv := &model.Server{
+		Common: model.Common{ID: 99},
+		Name:   "Win-Node",
+		Host:   &model.Host{Platform: "Microsoft Windows Server 2022"},
+	}
+	if got := wrapCommandForAgent(winSrv, "Get-Process"); got != "Get-Process" {
+		t.Fatalf("expected Windows command to bypass POSIX bash wrapper, got %q", got)
+	}
+
+	// Verify interrupted turn summary preserves Chinese UTF-8 & tail output and coalesces roles cleanly
+	interrupted := model.AIOpsChatMessage{
+		Role:          "assistant",
+		Status:        "error",
+		Content:       "❌ 执行出错：context deadline exceeded",
+		ToolStepsJSON: `[{"tool":"exec_on_server","server_id":26,"server_name":"Sad-us","command":"set -euo pipefail && tar -cf /root/container-upgrade-backup-20261122/halo.tar /opt/1panel","summary":"在 [Sad-us] 执行命令完成","output":"开始备份中文目录...\nBACKUP_DONE=/root/container-upgrade-backup-20261122"}]`,
+	}
+	summary := buildInterruptedStepSummary(interrupted)
+	if summary == interrupted.Content {
+		t.Fatal("expected interrupted step summary to include tool step details")
+	}
+
+	var hist []llmChatMessage
+	hist = appendCoalescedHistory(hist, "user", "帮我升级所有容器")
+	hist = appendCoalescedHistory(hist, "assistant", summary)
+	hist = appendCoalescedHistory(hist, "user", "请接着刚才的进度继续")
+	hist = appendCoalescedHistory(hist, "user", "不要重复备份")
+	if len(hist) != 3 {
+		t.Fatalf("expected consecutive user turns to coalesce into 3 alternating messages, got %d", len(hist))
+	}
+}

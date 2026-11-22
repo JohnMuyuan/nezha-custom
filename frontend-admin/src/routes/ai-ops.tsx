@@ -40,6 +40,7 @@ import {
     Loader2,
     MessageSquarePlus,
     Play,
+    RotateCcw,
     Send,
     Settings2,
     ShieldCheck,
@@ -106,7 +107,156 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
     })
 }
 
-function SimpleMarkdown({ content }: { content: string }) {
+function parseTableRow(line: string): string[] {
+    const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "")
+    return trimmed.split("|").map((cell) => cell.trim())
+}
+
+function isTableSeparator(line: string): boolean {
+    const trimmed = line.trim()
+    return /^\|?[\s:-]+(\|[\s:-]+)+\|?$/.test(trimmed) && trimmed.includes("-")
+}
+
+function renderProseLines(textBlock: string, blockIdx: number): React.ReactNode {
+    const lines = textBlock.split("\n")
+    const elements: React.ReactNode[] = []
+    let i = 0
+
+    while (i < lines.length) {
+        const line = lines[i]
+        const trimmed = line.trim()
+
+        // Detect Markdown table (header row + |---|---| separator row)
+        if (
+            trimmed.includes("|") &&
+            i + 1 < lines.length &&
+            isTableSeparator(lines[i + 1])
+        ) {
+            const headers = parseTableRow(trimmed)
+            i += 2 // Skip header & separator
+            const rows: string[][] = []
+            while (i < lines.length && lines[i].trim().includes("|") && lines[i].trim() !== "") {
+                if (!isTableSeparator(lines[i])) {
+                    rows.push(parseTableRow(lines[i]))
+                }
+                i++
+            }
+            elements.push(
+                <div
+                    key={`tbl-${blockIdx}-${i}`}
+                    tabIndex={0}
+                    role="region"
+                    aria-label="运维结果数据表"
+                    className="my-1.5 max-h-80 overflow-auto rounded-lg border focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:outline-none"
+                >
+                    <table className="w-full border-separate border-spacing-0 text-left text-[11px]">
+                        <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-xs">
+                            <tr>
+                                {headers.map((h, hIdx) => (
+                                    <th
+                                        key={hIdx}
+                                        scope="col"
+                                        className="border-b px-2.5 py-1.5 font-semibold whitespace-nowrap text-foreground"
+                                    >
+                                        {renderInlineFormatting(h)}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            {rows.map((r, rIdx) => (
+                                <tr key={rIdx} className="hover:bg-muted/20">
+                                    {headers.map((_, cIdx) => (
+                                        <td key={cIdx} className="px-2.5 py-1.5 align-top">
+                                            {renderInlineFormatting(r[cIdx] ?? "")}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>,
+            )
+            continue
+        }
+
+        if (!trimmed) {
+            elements.push(<div key={`sp-${blockIdx}-${i}`} className="h-1" />)
+            i++
+            continue
+        }
+        if (trimmed.startsWith("#### ") || trimmed.startsWith("### ")) {
+            const hText = trimmed.replace(/^#+\s+/, "")
+            elements.push(
+                <h4
+                    key={`h4-${blockIdx}-${i}`}
+                    className="pt-1 text-xs font-bold text-foreground"
+                >
+                    {renderInlineFormatting(hText)}
+                </h4>,
+            )
+            i++
+            continue
+        }
+        if (trimmed.startsWith("## ") || trimmed.startsWith("# ")) {
+            const hText = trimmed.replace(/^#+\s+/, "")
+            elements.push(
+                <h3
+                    key={`h3-${blockIdx}-${i}`}
+                    className="pt-1 text-sm font-bold text-foreground"
+                >
+                    {renderInlineFormatting(hText)}
+                </h3>,
+            )
+            i++
+            continue
+        }
+        if (/^[-*•]\s+/.test(trimmed)) {
+            elements.push(
+                <div key={`ul-${blockIdx}-${i}`} className="flex items-start gap-1.5 pl-1">
+                    <span className="mt-0.5 text-primary">•</span>
+                    <span>{renderInlineFormatting(trimmed.replace(/^[-*•]\s+/, ""))}</span>
+                </div>,
+            )
+            i++
+            continue
+        }
+        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/)
+        if (numMatch) {
+            elements.push(
+                <div key={`ol-${blockIdx}-${i}`} className="flex items-start gap-1.5 pl-1">
+                    <span className="min-w-4 font-semibold text-primary">{numMatch[1]}.</span>
+                    <span>{renderInlineFormatting(numMatch[2])}</span>
+                </div>,
+            )
+            i++
+            continue
+        }
+        if (trimmed.startsWith("> ")) {
+            elements.push(
+                <blockquote
+                    key={`bq-${blockIdx}-${i}`}
+                    className="border-l-2 border-primary/50 pl-2.5 text-muted-foreground italic"
+                >
+                    {renderInlineFormatting(trimmed.slice(2))}
+                </blockquote>,
+            )
+            i++
+            continue
+        }
+
+        elements.push(<p key={`p-${blockIdx}-${i}`}>{renderInlineFormatting(line)}</p>)
+        i++
+    }
+
+    return (
+        <div key={blockIdx} className="space-y-1">
+            {elements}
+        </div>
+    )
+}
+
+export function SimpleMarkdown({ content }: { content: string }) {
     if (!content) return null
     const blocks = content.split(/(```[\s\S]*?```)/g)
     return (
@@ -123,49 +273,7 @@ function SimpleMarkdown({ content }: { content: string }) {
                         </pre>
                     )
                 }
-                const lines = block.split("\n")
-                return (
-                    <div key={idx} className="space-y-1">
-                        {lines.map((line, lIdx) => {
-                            const trimmed = line.trim()
-                            if (!trimmed) return <div key={lIdx} className="h-1" />
-                            if (trimmed.startsWith("### ")) {
-                                return (
-                                    <h4
-                                        key={lIdx}
-                                        className="pt-1 text-xs font-bold text-foreground"
-                                    >
-                                        {renderInlineFormatting(trimmed.slice(4))}
-                                    </h4>
-                                )
-                            }
-                            if (trimmed.startsWith("## ") || trimmed.startsWith("# ")) {
-                                const hText = trimmed.replace(/^#+\s+/, "")
-                                return (
-                                    <h3
-                                        key={lIdx}
-                                        className="pt-1 text-sm font-bold text-foreground"
-                                    >
-                                        {renderInlineFormatting(hText)}
-                                    </h3>
-                                )
-                            }
-                            if (/^[-*•]\s+/.test(trimmed)) {
-                                return (
-                                    <div key={lIdx} className="flex items-start gap-1.5 pl-1">
-                                        <span className="mt-0.5 text-primary">•</span>
-                                        <span>
-                                            {renderInlineFormatting(
-                                                trimmed.replace(/^[-*•]\s+/, ""),
-                                            )}
-                                        </span>
-                                    </div>
-                                )
-                            }
-                            return <p key={lIdx}>{renderInlineFormatting(line)}</p>
-                        })}
-                    </div>
-                )
+                return renderProseLines(block, idx)
             })}
         </div>
     )
@@ -239,7 +347,8 @@ export default function AIOpsPage() {
     const [selectedSessionId, setSelectedSessionId] = useState<number>(0)
     const [promptInput, setPromptInput] = useState<string>("")
     const [submittingChat, setSubmittingChat] = useState<boolean>(false)
-    const chatBottomRef = useRef<HTMLDivElement | null>(null)
+    const chatScrollRef = useRef<HTMLDivElement | null>(null)
+    const prevMsgCountRef = useRef<number>(0)
 
     const { data: cfgData, mutate: mutateCfg } = useSWR<AIOpsConfigView>(
         isAdmin ? "/api/v1/ai-ops/config" : null,
@@ -360,8 +469,19 @@ export default function AIOpsPage() {
     )
 
     useEffect(() => {
-        chatBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-    }, [messages.length, isSessionRunning])
+        const el = chatScrollRef.current
+        if (!el) return
+        const isNewMessage = messages.length !== prevMsgCountRef.current
+        prevMsgCountRef.current = messages.length
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+        if (isNewMessage || distanceFromBottom < 140) {
+            if (typeof el.scrollTo === "function") {
+                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+            } else {
+                el.scrollTop = el.scrollHeight
+            }
+        }
+    }, [messages, isSessionRunning])
 
     if (authLoading) {
         return <div className="p-8 text-center text-sm text-muted-foreground">正在加载权限...</div>
@@ -506,6 +626,25 @@ export default function AIOpsPage() {
         }
     }
 
+    const handleResumeInterruptedTurn = async () => {
+        if (submittingChat || isSessionRunning || !selectedSessionId) return
+        setSubmittingChat(true)
+        try {
+            await postAIOpsChat({
+                session_id: selectedSessionId,
+                prompt: "请接着上一轮已完成的进度继续执行剩余操作（前面已完成的备份和镜像拉取直接复用，不要重做），完成后检查服务状态向我汇报。",
+            })
+            await mutateSessions()
+            await mutateSessionDetail()
+        } catch (err: any) {
+            toast.error("继续执行失败", {
+                description: err?.message || "请检查模型配置",
+            })
+        } finally {
+            setSubmittingChat(false)
+        }
+    }
+
     const handleApplyIncidentFix = async (inc: AIOpsIncident) => {
         if (submittingChat) return
         setSubmittingChat(true)
@@ -513,6 +652,7 @@ export default function AIOpsPage() {
             const fixPrompt = `请针对服务器「${inc.server_name}」(server_id=${inc.server_id}) 刚刚生成的以下只读诊断报告，直接通过 Agent 上机帮我稳妥地执行清理与修复操作（例如清理过期缓存/日志、配置 journald 容量上限等安全项；如果涉及第三方业务或探针进程是否停用，请优先清理其膨胀缓存文件而不擅自卸载用户软件），全部做完后检查 df -h / free -m 与服务状态并向我汇报结果：\n\n${inc.large_report}`
             const res = await postAIOpsChat({
                 session_id: 0,
+                title: `🛠️ 处置：${inc.server_name}`,
                 prompt: fixPrompt,
             })
             setSelectedSessionId(res.session_id)
@@ -669,7 +809,10 @@ export default function AIOpsPage() {
 
                         {/* 右侧主聊天面板 */}
                         <div className="flex h-[640px] flex-col rounded-xl border bg-card lg:col-span-9">
-                            <div className="flex-1 space-y-4 overflow-y-auto p-4">
+                            <div
+                                ref={chatScrollRef}
+                                className="flex-1 space-y-4 overflow-y-auto p-4"
+                            >
                                 {selectedSessionId === 0 || messages.length === 0 ? (
                                     <div className="flex h-full flex-col items-center justify-center py-6">
                                         <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -744,6 +887,24 @@ export default function AIOpsPage() {
                                                     ) : (
                                                         <>
                                                             <SimpleMarkdown content={msg.content} />
+                                                            {(msg.status === "error" ||
+                                                                msg.status === "cancelled") &&
+                                                                !isSessionRunning && (
+                                                                    <div className="mt-2.5 flex items-center gap-2">
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            disabled={submittingChat}
+                                                                            onClick={
+                                                                                handleResumeInterruptedTurn
+                                                                            }
+                                                                            className="h-7 gap-1.5 text-xs"
+                                                                        >
+                                                                            <RotateCcw className="h-3.5 w-3.5" />
+                                                                            接着刚才的进度继续完成
+                                                                        </Button>
+                                                                    </div>
+                                                                )}
                                                             <ToolStepsDisclosure steps={steps} />
                                                         </>
                                                     )}
@@ -752,7 +913,6 @@ export default function AIOpsPage() {
                                         )
                                     })
                                 )}
-                                <div ref={chatBottomRef} />
                             </div>
 
                             {/* 底部输入框 */}

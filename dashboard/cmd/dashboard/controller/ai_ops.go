@@ -127,6 +127,7 @@ func cancelAIOpsSession(c *gin.Context) (any, error) {
 type postAIOpsChatForm struct {
 	SessionID uint64 `json:"session_id"`
 	Prompt    string `json:"prompt"`
+	Title     string `json:"title,omitempty"`
 }
 
 // POST /api/v1/ai-ops/chat
@@ -138,7 +139,7 @@ func postAIOpsChat(c *gin.Context) (any, error) {
 	if err := c.ShouldBindJSON(&form); err != nil {
 		return nil, err
 	}
-	sessID, msgID, err := singleton.AIOpsShared.StartWebChatTurn(form.SessionID, form.Prompt)
+	sessID, msgID, err := singleton.AIOpsShared.StartWebChatTurn(form.SessionID, form.Prompt, form.Title)
 	if err != nil {
 		return nil, err
 	}

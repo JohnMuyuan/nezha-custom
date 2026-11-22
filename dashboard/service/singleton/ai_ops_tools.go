@@ -2,6 +2,7 @@ package singleton
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,6 +82,19 @@ func truncateCommandOutput(out string) string {
 	omitted := len(out) - 2*aiHalfOutputBytes
 	return fmt.Sprintf("%s\n\n... [输出过长，中间已省略 %d 字节] ...\n\n%s",
 		out[:aiHalfOutputBytes], omitted, out[len(out)-aiHalfOutputBytes:])
+}
+
+// wrapCommandForAgent runs Linux commands under bash (when available) with stdin closed (</dev/null)
+// and stderr merged (2>&1), preventing dash 'Illegal option -o pipefail' errors and interactive hangs.
+func wrapCommandForAgent(srv *model.Server, rawCmd string) string {
+	if srv != nil {
+		snap := srv.RuntimeSnapshot()
+		if snap.Host != nil && strings.Contains(strings.ToLower(snap.Host.Platform), "windows") {
+			return rawCmd
+		}
+	}
+	b64 := base64.StdEncoding.EncodeToString([]byte(rawCmd))
+	return fmt.Sprintf("__NZ_AI_CMD=$(printf '%%s' '%s' | base64 -d); if command -v bash >/dev/null 2>&1; then bash -c \"$__NZ_AI_CMD\" </dev/null 2>&1; else sh -c \"$__NZ_AI_CMD\" </dev/null 2>&1; fi", b64)
 }
 
 func round1(v float64) float64 {
@@ -221,11 +235,11 @@ func buildAIOpsToolDefinitions(readOnly bool) []llmToolDef {
 						},
 						"command": map[string]any{
 							"type":        "string",
-							"description": "要执行的 Shell 命令（支持管道和组合命令，严禁交互式命令如 top 不带 -bn1、vim 等）",
+							"description": "要执行的 Shell 命令（Linux 节点自动使用 bash 执行并合并 stderr，支持 pipefail/数组；严禁无退出条件的交互式命令）",
 						},
 						"timeout_seconds": map[string]any{
 							"type":        "integer",
-							"description": "超时秒数（默认 45，拉取大型 Docker 镜像可设为 120~180）",
+							"description": "单条命令超时秒数（默认 120，大型备份或拉取多个 Docker 镜像可设为 240~360）",
 						},
 					},
 					"required": []string{"server_id", "command"},
@@ -375,14 +389,16 @@ func (ao *AIOpsClass) executeToolCall(
 			return fmt.Sprintf(`{"error":%q}`, err.Error()), step
 		}
 
-		timeout := 45 * time.Second
-		if args.TimeoutSeconds >= 5 && args.TimeoutSeconds <= 180 {
+		timeout := 120 * time.Second
+		if args.TimeoutSeconds >= 10 && args.TimeoutSeconds <= 360 {
 			timeout = time.Duration(args.TimeoutSeconds) * time.Second
 		}
+		// Detach per-command context from short parent blips while still honoring explicit session cancellation
 		cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
-		out, okExec, err := ao.DispatchAgentCommand(cmdCtx, srv, args.Command)
+		wrappedCmd := wrapCommandForAgent(srv, args.Command)
+		out, okExec, err := ao.DispatchAgentCommand(cmdCtx, srv, wrappedCmd)
 		truncated := truncateCommandOutput(out)
 		step.Output = truncated
 		if err != nil {

@@ -157,32 +157,60 @@ func callOpenAICompatible(
 		return llmChatMessage{}, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return llmChatMessage{}, fmt.Errorf("构造模型请求失败: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
-	httpReq.Header.Set("User-Agent", "Nezha-AIOps/1.0")
+	client := &http.Client{Timeout: 240 * time.Second}
+	var respBytes []byte
+	var statusCode int
+	var lastErr error
 
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return llmChatMessage{}, fmt.Errorf("请求模型接口失败: %w", err)
-	}
-	defer resp.Body.Close()
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				return llmChatMessage{}, ctx.Err()
+			}
+		}
+		httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+		if reqErr != nil {
+			return llmChatMessage{}, fmt.Errorf("构造模型请求失败: %w", reqErr)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+		httpReq.Header.Set("User-Agent", "Nezha-AIOps/1.1")
 
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
-	if err != nil {
-		return llmChatMessage{}, fmt.Errorf("读取模型响应失败: %w", err)
+		resp, doErr := client.Do(httpReq)
+		if doErr != nil {
+			lastErr = fmt.Errorf("请求模型接口失败: %w", doErr)
+			if ctx.Err() != nil {
+				return llmChatMessage{}, lastErr
+			}
+			continue
+		}
+		b, readErr := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("读取模型响应失败: %w", readErr)
+			continue
+		}
+		statusCode = resp.StatusCode
+		respBytes = b
+		if statusCode == 502 || statusCode == 503 || statusCode == 504 {
+			lastErr = fmt.Errorf("模型网关暂时繁忙 (HTTP %d)", statusCode)
+			continue
+		}
+		lastErr = nil
+		break
+	}
+	if lastErr != nil && len(respBytes) == 0 {
+		return llmChatMessage{}, lastErr
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if statusCode < 200 || statusCode >= 300 {
 		snippet := strings.TrimSpace(string(respBytes))
 		if len(snippet) > 360 {
 			snippet = snippet[:360] + "..."
 		}
-		return llmChatMessage{}, fmt.Errorf("模型接口返回 HTTP %d: %s", resp.StatusCode, snippet)
+		return llmChatMessage{}, fmt.Errorf("模型接口返回 HTTP %d: %s", statusCode, snippet)
 	}
 
 	var parsed llmChatResponse

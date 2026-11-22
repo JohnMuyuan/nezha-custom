@@ -196,7 +196,7 @@ export function testAIOpsModel(payload: {
     )
 }
 
-export function postAIOpsChat(payload: { session_id: number; prompt: string }) {
+export function postAIOpsChat(payload: { session_id: number; prompt: string; title?: string }) {
     return fetcher<{ session_id: number; message_id: number }>(
         FetcherMethod.POST,
         "/api/v1/ai-ops/chat",

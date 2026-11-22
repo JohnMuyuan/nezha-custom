@@ -19,7 +19,7 @@ var AIOpsShared *AIOpsClass
 
 const (
 	aiOpsTaskIDMask      uint64 = uint64(1) << 61
-	aiOpsMaxReActSteps          = 10
+	aiOpsMaxReActSteps          = 25
 	aiOpsPatrolSnapshotSh       = `export LC_ALL=C; echo "=== UPTIME ==="; uptime 2>/dev/null; echo "=== MEMORY (MB) ==="; free -m 2>/dev/null; echo "=== DISK ==="; df -hT -x tmpfs -x devtmpfs 2>/dev/null | head -n 12; echo "=== TOP CPU PROCS ==="; ps -eo pid,user,%cpu,%mem,comm,args --sort=-%cpu 2>/dev/null | head -n 10; if command -v docker >/dev/null 2>&1; then echo "=== DOCKER PS ==="; docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" 2>/dev/null | head -n 15; fi`
 )
 
@@ -99,6 +99,17 @@ func NewAIOpsClass() *AIOpsClass {
 	}
 	ao.taskSeq.Store(uint64(time.Now().UnixNano() & 0x0fffffff))
 	ao.loadConfigFromDB()
+	if DB != nil {
+		// Clean up any zombie 'running' chat messages or incidents left behind by a container restart
+		_ = DB.Model(&model.AIOpsChatMessage{}).Where("status = ?", "running").Updates(map[string]any{
+			"status":  "error",
+			"content": "⚠️ 面板服务刚刚重启，未完成的后台任务已安全中断，可点击下方「继续完成」接着处理。",
+		}).Error
+		_ = DB.Model(&model.AIOpsIncident{}).Where("status IN ?", []string{"triaging", "diagnosing"}).Updates(map[string]any{
+			"status":       "error",
+			"large_report": "面板重启中断了本次巡检。",
+		}).Error
+	}
 	return ao
 }
 
@@ -397,7 +408,9 @@ func (ao *AIOpsClass) runAgentReActLoop(
 			return text, steps, nil
 		}
 
-		for _, tc := range reply.ToolCalls {
+		nCalls := len(reply.ToolCalls)
+		if nCalls == 1 {
+			tc := reply.ToolCalls[0]
 			if ctx.Err() != nil {
 				return "", steps, ctx.Err()
 			}
@@ -414,6 +427,35 @@ func (ao *AIOpsClass) runAgentReActLoop(
 				ToolCallID: tc.ID,
 				Content:    out,
 			})
+		} else {
+			if ctx.Err() != nil {
+				return "", steps, ctx.Err()
+			}
+			if onStep != nil {
+				onStep(steps, fmt.Sprintf("正在跨节点并行执行 %d 项操作...", nCalls))
+			}
+			outs := make([]string, nCalls)
+			recs := make([]model.AIOpsToolStep, nCalls)
+			var wg sync.WaitGroup
+			for i, tc := range reply.ToolCalls {
+				wg.Add(1)
+				go func(idx int, call llmToolCall) {
+					defer wg.Done()
+					outs[idx], recs[idx] = ao.executeToolCall(ctx, call, readOnly)
+				}(i, tc)
+			}
+			wg.Wait()
+			for i, tc := range reply.ToolCalls {
+				steps = append(steps, recs[i])
+				messages = append(messages, llmChatMessage{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Content:    outs[i],
+				})
+			}
+			if onStep != nil {
+				onStep(steps, recs[nCalls-1].Summary)
+			}
 		}
 	}
 
@@ -430,8 +472,51 @@ func (ao *AIOpsClass) runAgentReActLoop(
 	return text, steps, nil
 }
 
+func truncateRunesHeadTail(s string, maxRunes int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= maxRunes || maxRunes < 20 {
+		return string(r)
+	}
+	half := maxRunes / 2
+	return string(r[:half]) + " ... " + string(r[len(r)-half:])
+}
+
+func buildInterruptedStepSummary(m model.AIOpsChatMessage) string {
+	var parsed []model.AIOpsToolStep
+	if m.ToolStepsJSON != "" {
+		_ = json.Unmarshal([]byte(m.ToolStepsJSON), &parsed)
+	}
+	if len(parsed) == 0 {
+		return m.Content
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("【系统记录：上一轮执行在中途中断（%s），中断前已实际完成以下 %d 步操作，后续若继续处理请直接复用已有备份目录或已拉取镜像，避免重复耗时】：\n", m.Content, len(parsed)))
+	for i, st := range parsed {
+		cmdShort := truncateRunesHeadTail(st.Command, 160)
+		outShort := truncateRunesHeadTail(st.Output, 360)
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s (cmd: %s) -> %s\n", i+1, st.ServerName, st.Summary, cmdShort, outShort))
+	}
+	return sb.String()
+}
+
+func appendCoalescedHistory(history []llmChatMessage, role, content string) []llmChatMessage {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return history
+	}
+	if len(history) > 0 && history[len(history)-1].Role == role {
+		prev, _ := history[len(history)-1].Content.(string)
+		history[len(history)-1].Content = prev + "\n\n" + content
+		return history
+	}
+	return append(history, llmChatMessage{
+		Role:    role,
+		Content: content,
+	})
+}
+
 // StartWebChatTurn creates/appends a user turn and launches the async ReAct worker for live UI polling.
-func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string) (uint64, uint64, error) {
+func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string, customTitle string) (uint64, uint64, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return 0, 0, errors.New("请输入指令内容")
@@ -452,10 +537,13 @@ func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string) (uint64,
 			return 0, 0, errors.New("会话不存在")
 		}
 	} else {
-		title := prompt
+		title := strings.TrimSpace(customTitle)
+		if title == "" {
+			title = prompt
+		}
 		runes := []rune(title)
-		if len(runes) > 22 {
-			title = string(runes[:22]) + "…"
+		if len(runes) > 24 {
+			title = string(runes[:24]) + "…"
 		}
 		session = model.AIOpsChatSession{
 			Title:  title,
@@ -473,23 +561,23 @@ func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string) (uint64,
 		return 0, 0, errors.New("当前对话正在执行任务中，请等待完成或点击停止")
 	}
 
-	// Load prior finished messages for conversation context (last 12 messages)
+	// Load prior messages (including interrupted turns so AI remembers backups/pulls already done!)
 	var prevMsgs []model.AIOpsChatMessage
-	DB.Where("session_id = ? AND status = ?", session.ID, "done").Order("id desc").Limit(12).Find(&prevMsgs)
+	DB.Where("session_id = ? AND status IN ?", session.ID, []string{"done", "error", "cancelled"}).Order("id desc").Limit(16).Find(&prevMsgs)
 	history := make([]llmChatMessage, 0, len(prevMsgs)+1)
 	for i := len(prevMsgs) - 1; i >= 0; i-- {
 		m := prevMsgs[i]
-		if m.Role == "user" || m.Role == "assistant" {
-			history = append(history, llmChatMessage{
-				Role:    m.Role,
-				Content: m.Content,
-			})
+		if m.Role == "user" {
+			history = appendCoalescedHistory(history, "user", m.Content)
+		} else if m.Role == "assistant" {
+			if m.Status == "done" {
+				history = appendCoalescedHistory(history, "assistant", m.Content)
+			} else {
+				history = appendCoalescedHistory(history, "assistant", buildInterruptedStepSummary(m))
+			}
 		}
 	}
-	history = append(history, llmChatMessage{
-		Role:    "user",
-		Content: prompt,
-	})
+	history = appendCoalescedHistory(history, "user", prompt)
 
 	userMsg := model.AIOpsChatMessage{
 		SessionID: session.ID,
@@ -515,7 +603,8 @@ func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string) (uint64,
 	}
 	DB.Model(&session).Update("updated_at", time.Now())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	// Allow up to 25 minutes for multi-server backups + large Docker image pulls & upgrades
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	ao.activeSessions[session.ID] = &activeChatRun{
 		cancel:    cancel,
 		messageID: assistantMsg.ID,
@@ -540,7 +629,7 @@ func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string) (uint64,
 			func(curSteps []model.AIOpsToolStep, hint string) {
 				stepsBytes, _ := json.Marshal(curSteps)
 				_ = DB.Model(&model.AIOpsChatMessage{}).Where("id = ?", msgID).Updates(map[string]any{
-					"content":         "⚡ " + hint,
+					"content":         fmt.Sprintf("⚡ [已完成 %d 步] %s", len(curSteps), hint),
 					"tool_steps_json": string(stepsBytes),
 				}).Error
 			},
@@ -549,15 +638,19 @@ func (ao *AIOpsClass) StartWebChatTurn(sessionID uint64, prompt string) (uint64,
 		stepsBytes, _ := json.Marshal(steps)
 		if errors.Is(runErr, context.Canceled) {
 			_ = DB.Model(&model.AIOpsChatMessage{}).Where("id = ?", msgID).Updates(map[string]any{
-				"content":         "⏹ 任务已被手动中止。",
+				"content":         fmt.Sprintf("⏹ 任务已手动停止（停止前已完成 %d 步操作，可点击下方按钮接着继续）。", len(steps)),
 				"status":          "cancelled",
 				"tool_steps_json": string(stepsBytes),
 			}).Error
 			return
 		}
 		if runErr != nil {
+			errMsg := "❌ 执行中断：" + runErr.Error()
+			if len(steps) > 0 {
+				errMsg = fmt.Sprintf("⚠️ 任务在第 %d 步后因超时或网络波动中断（`%s`）。\n\n前面已完成的 %d 步操作（如备份或拉取镜像）均已保留，无需重来，点击下方 **「🔄 接着刚才的进度继续完成」** 即可一键收尾！", len(steps), runErr.Error(), len(steps))
+			}
 			_ = DB.Model(&model.AIOpsChatMessage{}).Where("id = ?", msgID).Updates(map[string]any{
-				"content":         "❌ 执行出错：" + runErr.Error(),
+				"content":         errMsg,
 				"status":          "error",
 				"tool_steps_json": string(stepsBytes),
 			}).Error

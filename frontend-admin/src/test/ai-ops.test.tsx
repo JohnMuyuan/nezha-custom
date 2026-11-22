@@ -1,5 +1,5 @@
 import { LLM_PROVIDER_PRESETS, parseToolSteps, postAIOpsChat } from "@/api/ai-ops"
-import AIOpsPage from "@/routes/ai-ops"
+import AIOpsPage, { SimpleMarkdown } from "@/routes/ai-ops"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -17,6 +17,11 @@ vi.mock("@/hooks/useAuth", () => ({
 
 vi.mock("@/hooks/useNotfication", () => ({
     useNotification: () => ({ notifierGroup: [] }),
+}))
+
+const swrMockState = vi.hoisted(() => ({
+    sessions: [] as any[],
+    sessionDetail: null as any,
 }))
 
 vi.mock("swr", () => ({
@@ -55,6 +60,12 @@ vi.mock("swr", () => ({
                 mutate: vi.fn(),
             }
         }
+        if (key === "/api/v1/ai-ops/sessions") {
+            return { data: swrMockState.sessions, mutate: vi.fn() }
+        }
+        if (key && key.startsWith("/api/v1/ai-ops/sessions/")) {
+            return { data: swrMockState.sessionDetail, mutate: vi.fn() }
+        }
         return { data: [], mutate: vi.fn() }
     },
 }))
@@ -69,6 +80,8 @@ vi.mock("@/api/ai-ops", async (importOriginal) => {
 
 afterEach(() => {
     cleanup()
+    swrMockState.sessions = []
+    swrMockState.sessionDetail = null
     vi.clearAllMocks()
 })
 
@@ -118,5 +131,60 @@ describe("AIOpsPage & helpers", () => {
         expect(LLM_PROVIDER_PRESETS.length).toBeGreaterThanOrEqual(5)
         expect(parseToolSteps('[{"tool":"exec_on_server","duration_ms":42}]')).toHaveLength(1)
         expect(parseToolSteps("not-json")).toEqual([])
+    })
+
+    it("renders GFM Markdown pipe tables with accessible region & sticky column headers", () => {
+        const md = [
+            "### 镜像更新清单",
+            "| 容器名 | 当前版本 | 最新版本 |",
+            "| --- | --- | --- |",
+            "| `1Panel-halo` | 2.27.0 | **2.27.3** |",
+            "| `1Panel-redis` | 8.10.2 | **8.10.3** |",
+        ].join("\n")
+
+        render(<SimpleMarkdown content={md} />)
+        const region = screen.getByRole("region", { name: "运维结果数据表" })
+        expect(region.getAttribute("tabindex")).toBe("0")
+        expect(screen.getByText("1Panel-halo")).toBeTruthy()
+        expect(screen.getByText("2.27.3")).toBeTruthy()
+        expect(region.querySelectorAll("th[scope='col']")).toHaveLength(3)
+    })
+
+    it("renders 1-click resume button on interrupted/error assistant message and continues session", async () => {
+        authState.profile = { id: 1, username: "admin", role: 0 }
+        window.HTMLElement.prototype.scrollTo = vi.fn()
+        swrMockState.sessions = [{ id: 4, title: "帮我升级两个服务器所有容器", source: "web" }]
+        swrMockState.sessionDetail = {
+            session: { id: 4, title: "帮我升级两个服务器所有容器", source: "web" },
+            messages: [
+                { id: 11, session_id: 4, role: "user", content: "帮我升级容器", status: "done", tool_steps_json: "" },
+                {
+                    id: 12,
+                    session_id: 4,
+                    role: "assistant",
+                    content: "❌ 执行出错：context deadline exceeded",
+                    model_used: "grok-4.7",
+                    status: "error",
+                    tool_steps_json: '[{"tool":"exec_on_server","summary":"已完成备份"}]',
+                },
+            ],
+        }
+
+        render(
+            <MemoryRouter initialEntries={["/dashboard/ai-ops"]}>
+                <AIOpsPage />
+            </MemoryRouter>,
+        )
+
+        const resumeBtn = await screen.findByRole("button", { name: /接着刚才的进度继续完成/ })
+        fireEvent.click(resumeBtn)
+
+        await waitFor(() => {
+            expect(postAIOpsChat).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    session_id: 4,
+                }),
+            )
+        })
     })
 })
