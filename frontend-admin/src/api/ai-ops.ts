@@ -23,6 +23,11 @@ export interface AIOpsConfigView {
     has_telegram_token: boolean
     telegram_endpoint: string
     telegram_allowed_chat_ids: string
+    security_enabled: boolean
+    security_interval_min: number
+    trusted_ssh_ips: string
+    outbound_spike_mbps: number
+    conn_spike_threshold: number
 }
 
 export interface AIOpsConfigUpdatePayload {
@@ -45,6 +50,11 @@ export interface AIOpsConfigUpdatePayload {
     telegram_bot_token: string
     telegram_endpoint: string
     telegram_allowed_chat_ids: string
+    security_enabled: boolean
+    security_interval_min: number
+    trusted_ssh_ips: string
+    outbound_spike_mbps: number
+    conn_spike_threshold: number
 }
 
 export interface AIOpsToolStep {

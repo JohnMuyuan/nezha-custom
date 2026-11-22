@@ -75,6 +75,11 @@ const STARTER_PROMPTS = [
         title: "排查大体积日志与悬空镜像并安全清理",
         prompt: "帮我找一下目前硬盘占用率最高的那台在线服务器，上去看看是哪里的日志或 Docker 镜像占满了，安全清理一下悬空镜像和过期系统日志并汇报释放了多少空间。",
     },
+    {
+        badge: "🚨 安全与入侵大体检",
+        title: "核查陌生 SSH 登录、后门公钥、定时任务与异常外连",
+        prompt: "帮我对主力在线服务器做一次安全入侵大排查：检查最近的 SSH 登录来源 IP、/root/.ssh/authorized_keys 是否有可疑公钥、crontab 是否有异常定时任务，以及当前是否有可疑对外网络连接。",
+    },
 ]
 
 function renderInlineFormatting(text: string): React.ReactNode[] {
@@ -292,6 +297,11 @@ export default function AIOpsPage() {
         telegram_bot_token: "",
         telegram_endpoint: "https://api.telegram.org",
         telegram_allowed_chat_ids: "",
+        security_enabled: true,
+        security_interval_min: 5,
+        trusted_ssh_ips: "",
+        outbound_spike_mbps: 50,
+        conn_spike_threshold: 1200,
     })
     const [savingCfg, setSavingCfg] = useState(false)
     const [testingTier, setTestingTier] = useState<"small" | "large" | null>(null)
@@ -319,6 +329,11 @@ export default function AIOpsPage() {
             telegram_bot_token: view.telegram_bot_token_masked || "",
             telegram_endpoint: view.telegram_endpoint || "https://api.telegram.org",
             telegram_allowed_chat_ids: view.telegram_allowed_chat_ids || "",
+            security_enabled: view.security_enabled ?? true,
+            security_interval_min: view.security_interval_min || 5,
+            trusted_ssh_ips: view.trusted_ssh_ips || "",
+            outbound_spike_mbps: view.outbound_spike_mbps || 50,
+            conn_spike_threshold: view.conn_spike_threshold || 1200,
         })
     }
 
@@ -533,6 +548,11 @@ export default function AIOpsPage() {
                         >
                             {cfgData?.enabled ? "● 后台哨兵值守中" : "○ 后台自动盯盘未开启"}
                         </span>
+                        {cfgData?.enabled && cfgData?.security_enabled && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2.5 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-300">
+                                🛡️ 入侵与防攻击护盾已开启
+                            </span>
+                        )}
                         {cfgData?.telegram_enabled && cfgData?.has_telegram_token && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">
                                 ✈️ Telegram 双向遥控已连接
@@ -839,6 +859,10 @@ export default function AIOpsPage() {
                         <div className="space-y-3">
                             {incidents.map((inc) => {
                                 const steps = parseToolSteps(inc.tool_steps_json)
+                                const isSecurityEvent = inc.trigger_type?.startsWith("security_")
+                                const isHighRiskSecurity =
+                                    inc.trigger_type === "security_ssh" ||
+                                    inc.trigger_type === "security_tamper"
                                 const statusBadge = (() => {
                                     switch (inc.status) {
                                         case "dismissed_by_small":
@@ -852,7 +876,7 @@ export default function AIOpsPage() {
                                             return (
                                                 <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-0.5 text-[11px] font-medium text-primary">
                                                     <Loader2 className="h-3 w-3 animate-spin" />
-                                                    正在自动上机排查中...
+                                                    正在自动上机取证排查中...
                                                 </span>
                                             )
                                         case "error":
@@ -864,10 +888,24 @@ export default function AIOpsPage() {
                                         case "healed":
                                             return (
                                                 <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                                                    🛠️ 已出诊断并自动修复
+                                                    🛠️ 已出诊断并自动处置
                                                 </span>
                                             )
                                         default:
+                                            if (isHighRiskSecurity) {
+                                                return (
+                                                    <span className="rounded-full bg-rose-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+                                                        🚨 高危安全入侵/篡改取证（待你确认处置）
+                                                    </span>
+                                                )
+                                            }
+                                            if (isSecurityEvent) {
+                                                return (
+                                                    <span className="rounded-full bg-orange-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-orange-700 dark:text-orange-300">
+                                                        🛡️ 流量外泄 / 攻击预警（待你确认处置）
+                                                    </span>
+                                                )
+                                            }
                                             return (
                                                 <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
                                                     {inc.server_id > 0
@@ -881,7 +919,13 @@ export default function AIOpsPage() {
                                 return (
                                     <div
                                         key={inc.id}
-                                        className="space-y-2.5 rounded-xl border bg-card p-4 shadow-2xs"
+                                        className={`space-y-2.5 rounded-xl border bg-card p-4 shadow-2xs ${
+                                            isHighRiskSecurity
+                                                ? "border-rose-500/50"
+                                                : isSecurityEvent
+                                                  ? "border-orange-500/40"
+                                                  : ""
+                                        }`}
                                     >
                                         <div className="flex flex-wrap items-center justify-between gap-2">
                                             <div className="flex flex-wrap items-center gap-2">
@@ -1352,6 +1396,135 @@ export default function AIOpsPage() {
                                             后台无人巡检时也允许自动修复（不勾选则后台巡检仅只读查因；你主动对话时始终支持全自动干活）
                                         </Label>
                                     </div>
+                                </div>
+                            </div>
+                        </fieldset>
+
+                        {/* 3.5 AI 安全入侵与防攻击哨兵 */}
+                        <fieldset className="space-y-3.5 rounded-xl border border-rose-500/25 bg-card p-4">
+                            <legend className="px-1.5 text-sm font-bold text-rose-600 dark:text-rose-400">
+                                🚨 AI 安全入侵与防攻击护盾（防陌生 SSH 登录 / 后门篡改 / 拖库外泄 / 网站被攻击）
+                            </legend>
+
+                            <div className="flex items-center gap-2.5 rounded-lg border border-rose-500/25 bg-rose-500/5 px-3.5 py-2.5">
+                                <Checkbox
+                                    id="ai_security_enable"
+                                    checked={formState.security_enabled}
+                                    onCheckedChange={(v) =>
+                                        setFormState({
+                                            ...formState,
+                                            security_enabled: Boolean(v),
+                                        })
+                                    }
+                                />
+                                <Label
+                                    htmlFor="ai_security_enable"
+                                    className="cursor-pointer text-xs font-semibold leading-snug"
+                                >
+                                    🛡️ 启用全天候安全入侵与防攻击哨兵（静默核对 SSH 登录与公钥/账号/定时任务指纹 + 监控出站流量与连接暴涨，平时 0 Token 消耗！）
+                                </Label>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                                <div className="space-y-1 sm:col-span-6">
+                                    <div className="flex flex-wrap items-center justify-between gap-1">
+                                        <Label htmlFor="trusted_ssh_ips" className="text-xs">
+                                            信任的管理员 SSH 登录 IP 白名单（逗号分隔，支持网段如 1.2.3.0/24）
+                                        </Label>
+                                        {profile?.login_ip && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const curIp = profile.login_ip!.trim()
+                                                    const existing = formState.trusted_ssh_ips
+                                                        .split(/[,，\s]+/)
+                                                        .map((s) => s.trim())
+                                                        .filter(Boolean)
+                                                    if (!existing.includes(curIp)) {
+                                                        setFormState({
+                                                            ...formState,
+                                                            trusted_ssh_ips: [...existing, curIp].join(", "),
+                                                        })
+                                                    }
+                                                }}
+                                                className="rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
+                                            >
+                                                + 填入我当前 IP ({profile.login_ip})
+                                            </button>
+                                        )}
+                                    </div>
+                                    <Input
+                                        id="trusted_ssh_ips"
+                                        autoCorrect="off"
+                                        autoCapitalize="none"
+                                        spellCheck={false}
+                                        value={formState.trusted_ssh_ips}
+                                        onChange={(e) =>
+                                            setFormState({
+                                                ...formState,
+                                                trusted_ssh_ips: e.target.value,
+                                            })
+                                        }
+                                        placeholder="例如：23.147.56.205（白名单外的陌生 IP 登录任意小鸡 SSH 将立即触发最高级警报！）"
+                                    />
+                                </div>
+
+                                <div className="space-y-1 sm:col-span-2">
+                                    <Label htmlFor="security_interval_min" className="text-xs">
+                                        后门巡检间隔 (分)
+                                    </Label>
+                                    <Input
+                                        id="security_interval_min"
+                                        type="number"
+                                        min={2}
+                                        max={1440}
+                                        value={formState.security_interval_min}
+                                        onChange={(e) =>
+                                            setFormState({
+                                                ...formState,
+                                                security_interval_min: Number(e.target.value) || 5,
+                                            })
+                                        }
+                                    />
+                                </div>
+
+                                <div className="space-y-1 sm:col-span-2">
+                                    <Label htmlFor="outbound_spike_mbps" className="text-xs">
+                                        外泄上传线 (Mbps)
+                                    </Label>
+                                    <Input
+                                        id="outbound_spike_mbps"
+                                        type="number"
+                                        min={5}
+                                        max={100000}
+                                        value={formState.outbound_spike_mbps}
+                                        onChange={(e) =>
+                                            setFormState({
+                                                ...formState,
+                                                outbound_spike_mbps: Number(e.target.value) || 50,
+                                            })
+                                        }
+                                    />
+                                </div>
+
+                                <div className="space-y-1 sm:col-span-2">
+                                    <Label htmlFor="conn_spike_threshold" className="text-xs">
+                                        被攻击连接数线
+                                    </Label>
+                                    <Input
+                                        id="conn_spike_threshold"
+                                        type="number"
+                                        min={100}
+                                        max={1000000}
+                                        value={formState.conn_spike_threshold}
+                                        onChange={(e) =>
+                                            setFormState({
+                                                ...formState,
+                                                conn_spike_threshold:
+                                                    Number(e.target.value) || 1200,
+                                            })
+                                        }
+                                    />
                                 </div>
                             </div>
                         </fieldset>

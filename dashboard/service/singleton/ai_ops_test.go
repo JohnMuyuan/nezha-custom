@@ -2,6 +2,7 @@ package singleton
 
 import (
 	"testing"
+	"time"
 
 	"github.com/nezhahq/nezha/model"
 )
@@ -108,5 +109,90 @@ func TestParseSmallTriageVerdictAndMasking(t *testing.T) {
 	ids := parseAllowedTelegramIDs("123456789, -100998877， 556677")
 	if len(ids) != 3 {
 		t.Fatalf("expected 3 parsed Telegram IDs, got %d", len(ids))
+	}
+}
+
+func TestSecuritySentinelProbeAndDiff(t *testing.T) {
+	allow := "23.147.56.205, 10.8.0.0/16"
+	if !isTrustedSSHIP("23.147.56.205", allow) {
+		t.Fatal("expected exact allowlist IP to be trusted")
+	}
+	if !isTrustedSSHIP("10.8.4.99", allow) {
+		t.Fatal("expected CIDR allowlist IP to be trusted")
+	}
+	if !isTrustedSSHIP("127.0.0.1", "") {
+		t.Fatal("expected loopback IP to be trusted")
+	}
+	if isTrustedSSHIP("185.220.101.9", allow) {
+		t.Fatal("expected unknown external IP to be untrusted")
+	}
+
+	baselineRaw := `===WHO===
+root     pts/0        2026-11-22 10:00 (tmux(1234).%0)
+root     pts/1        2026-11-22 10:01 (23.147.56.205)
+===AUTH_ACCEPTED===
+Nov 22 10:01:02 vps sshd[999]: Accepted publickey for root from 23.147.56.205 port 51234 ssh2
+===HASHES===
+1111111111111111111111111111111111111111111111111111111111111111  /root/.ssh/authorized_keys
+2222222222222222222222222222222222222222222222222222222222222222  /etc/passwd
+MISSING /etc/ld.so.preload
+===BRUTE_10M===
+12`
+
+	ao := &AIOpsClass{
+		securityStates:   make(map[uint64]*serverSecurityState),
+		securityCooldown: make(map[string]time.Time),
+	}
+	srv := &model.Server{Common: model.Common{ID: 8}, Name: "HK-Node"}
+	cfg := model.AIOpsConfig{
+		SecurityEnabled: true,
+		TrustedSSHIPS:   allow,
+	}
+
+	// 1. First scan establishes baseline silently (0 alerts)
+	parsedBase := parseSecurityProbeOutput(baselineRaw)
+	if len(parsedBase.ActiveSSH) != 1 { // tmux session ignored, real IP kept
+		t.Fatalf("expected 1 active remote SSH session, got %d", len(parsedBase.ActiveSSH))
+	}
+	initialAlerts := ao.diffServerSecurityFingerprint(srv, parsedBase, cfg, time.Now())
+	if len(initialAlerts) != 0 {
+		t.Fatalf("expected 0 alerts on initial baseline, got %d", len(initialAlerts))
+	}
+
+	// 2. Trusted admin login from CIDR does NOT alert
+	trustedNext := parseSecurityProbeOutput(`===WHO===
+root     pts/2        2026-11-22 10:06 (10.8.1.2)
+===AUTH_ACCEPTED===
+Nov 22 10:06:00 vps sshd[1002]: Accepted publickey for root from 10.8.1.2 port 55111 ssh2
+===HASHES===
+1111111111111111111111111111111111111111111111111111111111111111  /root/.ssh/authorized_keys
+2222222222222222222222222222222222222222222222222222222222222222  /etc/passwd
+MISSING /etc/ld.so.preload
+===BRUTE_10M===
+15`)
+	if got := ao.diffServerSecurityFingerprint(srv, trustedNext, cfg, time.Now()); len(got) != 0 {
+		t.Fatalf("expected 0 alerts for trusted IP login, got %+v", got)
+	}
+
+	// 3. Untrusted SSH login + authorized_keys modification fires BOTH security_ssh and security_tamper!
+	intrusionRaw := parseSecurityProbeOutput(`===WHO===
+root     pts/3        2026-11-22 10:09 (185.220.101.9)
+===AUTH_ACCEPTED===
+Nov 22 10:09:01 vps sshd[1055]: Accepted password for root from 185.220.101.9 port 44321 ssh2
+===HASHES===
+9999999999999999999999999999999999999999999999999999999999999999  /root/.ssh/authorized_keys
+2222222222222222222222222222222222222222222222222222222222222222  /etc/passwd
+MISSING /etc/ld.so.preload
+===BRUTE_10M===
+20`)
+	alerts := ao.diffServerSecurityFingerprint(srv, intrusionRaw, cfg, time.Now())
+	if len(alerts) != 2 {
+		t.Fatalf("expected 2 high-risk security alerts (ssh + tamper), got %d: %+v", len(alerts), alerts)
+	}
+	if alerts[0].triggerType != "security_ssh" || !alerts[0].directToLarge {
+		t.Fatalf("expected first alert to be directToLarge security_ssh, got %+v", alerts[0])
+	}
+	if alerts[1].triggerType != "security_tamper" || !alerts[1].directToLarge {
+		t.Fatalf("expected second alert to be directToLarge security_tamper, got %+v", alerts[1])
 	}
 }

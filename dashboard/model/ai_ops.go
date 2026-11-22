@@ -40,6 +40,14 @@ type AIOpsConfig struct {
 	TelegramBotToken       string `json:"-"`
 	TelegramEndpoint       string `json:"telegram_endpoint"`
 	TelegramAllowedChatIDs string `json:"telegram_allowed_chat_ids"` // 逗号分隔的管理员 Chat ID 白名单
+
+	// AI 安全入侵与防攻击哨兵（SSH 陌生登录 / 后门篡改 / 数据外泄 / CC 与连接洪泛）
+	SecurityBootstrapped bool    `json:"-"`
+	SecurityEnabled      bool    `json:"security_enabled"`
+	SecurityIntervalMin  int     `json:"security_interval_min"`  // SSH 与文件哈希轻量巡检间隔（分钟，默认 5）
+	TrustedSSHIPS        string  `json:"trusted_ssh_ips"`        // 信任的管理员 SSH 登录 IP / CIDR 白名单
+	OutboundSpikeMbps    float64 `json:"outbound_spike_mbps"`    // 疑似数据外泄持续上传网速阈值（Mbps，默认 50）
+	ConnSpikeThreshold   uint64  `json:"conn_spike_threshold"`   // 疑似网站被攻击 TCP+UDP 连接数阈值（默认 1200）
 }
 
 // AIOpsConfigView is the admin-facing DTO with masked secrets.
@@ -66,6 +74,11 @@ type AIOpsConfigView struct {
 	HasTelegramToken       bool    `json:"has_telegram_token"`
 	TelegramEndpoint       string  `json:"telegram_endpoint"`
 	TelegramAllowedChatIDs string  `json:"telegram_allowed_chat_ids"`
+	SecurityEnabled        bool    `json:"security_enabled"`
+	SecurityIntervalMin    int     `json:"security_interval_min"`
+	TrustedSSHIPS          string  `json:"trusted_ssh_ips"`
+	OutboundSpikeMbps      float64 `json:"outbound_spike_mbps"`
+	ConnSpikeThreshold     uint64  `json:"conn_spike_threshold"`
 }
 
 // AIOpsConfigUpdateForm accepts updates from the admin UI.
@@ -91,6 +104,11 @@ type AIOpsConfigUpdateForm struct {
 	TelegramBotToken       string  `json:"telegram_bot_token"`
 	TelegramEndpoint       string  `json:"telegram_endpoint"`
 	TelegramAllowedChatIDs string  `json:"telegram_allowed_chat_ids"`
+	SecurityEnabled        bool    `json:"security_enabled"`
+	SecurityIntervalMin    int     `json:"security_interval_min"`
+	TrustedSSHIPS          string  `json:"trusted_ssh_ips"`
+	OutboundSpikeMbps      float64 `json:"outbound_spike_mbps"`
+	ConnSpikeThreshold     uint64  `json:"conn_spike_threshold"`
 }
 
 func MaskSecret(s string) string {
@@ -136,6 +154,11 @@ func (c *AIOpsConfig) ToView() AIOpsConfigView {
 		HasTelegramToken:       strings.TrimSpace(c.TelegramBotToken) != "",
 		TelegramEndpoint:       c.TelegramEndpoint,
 		TelegramAllowedChatIDs: c.TelegramAllowedChatIDs,
+		SecurityEnabled:        c.SecurityEnabled,
+		SecurityIntervalMin:    c.SecurityIntervalMin,
+		TrustedSSHIPS:          c.TrustedSSHIPS,
+		OutboundSpikeMbps:      c.OutboundSpikeMbps,
+		ConnSpikeThreshold:     c.ConnSpikeThreshold,
 	}
 }
 

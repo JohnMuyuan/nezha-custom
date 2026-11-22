@@ -51,6 +51,12 @@ type AIOpsClass struct {
 	everSeenOnline map[uint64]time.Time
 	patrolRunning  atomic.Bool
 
+	securityMu           sync.Mutex
+	lastSecuritySweepAt  time.Time
+	securityStates       map[uint64]*serverSecurityState
+	securityCooldown     map[string]time.Time
+	securitySweepRunning atomic.Bool
+
 	tgMu        sync.Mutex
 	tgCancel    context.CancelFunc
 	tgSignature string
@@ -58,31 +64,38 @@ type AIOpsClass struct {
 
 func defaultAIOpsConfig() model.AIOpsConfig {
 	return model.AIOpsConfig{
-		ID:                1,
-		Enabled:           false,
-		SmallBaseURL:      "https://api.deepseek.com/v1",
-		SmallModel:        "deepseek-chat",
-		ShareProvider:     true,
-		LargeBaseURL:      "",
-		LargeModel:        "deepseek-reasoner",
-		PatrolIntervalMin: 3,
-		CPUThreshold:      88,
-		MemThreshold:      90,
-		DiskThreshold:     88,
-		CooldownMin:       60,
-		AutoSelfHeal:      false,
-		TelegramEndpoint:  "https://api.telegram.org",
+		ID:                   1,
+		Enabled:              false,
+		SmallBaseURL:         "https://api.deepseek.com/v1",
+		SmallModel:           "deepseek-chat",
+		ShareProvider:        true,
+		LargeBaseURL:         "",
+		LargeModel:           "deepseek-reasoner",
+		PatrolIntervalMin:    3,
+		CPUThreshold:         88,
+		MemThreshold:         90,
+		DiskThreshold:        88,
+		CooldownMin:          60,
+		AutoSelfHeal:         false,
+		TelegramEndpoint:     "https://api.telegram.org",
+		SecurityBootstrapped: true,
+		SecurityEnabled:      true,
+		SecurityIntervalMin:  5,
+		OutboundSpikeMbps:    50,
+		ConnSpikeThreshold:   1200,
 	}
 }
 
 func NewAIOpsClass() *AIOpsClass {
 	ao := &AIOpsClass{
-		cfg:            defaultAIOpsConfig(),
-		pending:        make(map[uint64]*pendingAIOpsTask),
-		activeSessions: make(map[uint64]*activeChatRun),
-		anomalyStreak:  make(map[string]int),
-		cooldownUntil:  make(map[string]time.Time),
-		everSeenOnline: make(map[uint64]time.Time),
+		cfg:              defaultAIOpsConfig(),
+		pending:          make(map[uint64]*pendingAIOpsTask),
+		activeSessions:   make(map[uint64]*activeChatRun),
+		anomalyStreak:    make(map[string]int),
+		cooldownUntil:    make(map[string]time.Time),
+		everSeenOnline:   make(map[uint64]time.Time),
+		securityStates:   make(map[uint64]*serverSecurityState),
+		securityCooldown: make(map[string]time.Time),
 	}
 	ao.taskSeq.Store(uint64(time.Now().UnixNano() & 0x0fffffff))
 	ao.loadConfigFromDB()
@@ -120,6 +133,23 @@ func (ao *AIOpsClass) loadConfigFromDB() {
 	if strings.TrimSpace(row.TelegramEndpoint) == "" {
 		row.TelegramEndpoint = "https://api.telegram.org"
 	}
+	if !row.SecurityBootstrapped {
+		row.SecurityEnabled = true
+		row.SecurityIntervalMin = 5
+		row.OutboundSpikeMbps = 50
+		row.ConnSpikeThreshold = 1200
+		row.SecurityBootstrapped = true
+		_ = DB.Save(&row).Error
+	}
+	if row.SecurityIntervalMin < 2 {
+		row.SecurityIntervalMin = 5
+	}
+	if row.OutboundSpikeMbps <= 0 {
+		row.OutboundSpikeMbps = 50
+	}
+	if row.ConnSpikeThreshold < 100 {
+		row.ConnSpikeThreshold = 1200
+	}
 	ao.cfgMu.Lock()
 	ao.cfg = row
 	ao.cfgMu.Unlock()
@@ -127,6 +157,17 @@ func (ao *AIOpsClass) loadConfigFromDB() {
 
 func (ao *AIOpsClass) StartBackgroundWorkers() {
 	ao.syncTelegramPoller()
+	// Warm up security fingerprint baseline 35s after startup once agents reconnect
+	go func() {
+		time.Sleep(35 * time.Second)
+		cfg := ao.GetConfigSnapshot()
+		if cfg.Enabled && cfg.SecurityEnabled {
+			ao.securityMu.Lock()
+			ao.lastSecuritySweepAt = time.Now()
+			ao.securityMu.Unlock()
+			ao.runSecurityFingerprintSweep(cfg)
+		}
+	}()
 }
 
 func (ao *AIOpsClass) GetConfigSnapshot() model.AIOpsConfig {
@@ -191,6 +232,25 @@ func (ao *AIOpsClass) UpdateConfig(form model.AIOpsConfigUpdateForm) (model.AIOp
 	}
 	next.TelegramEndpoint = strings.TrimRight(ep, "/")
 	next.TelegramAllowedChatIDs = strings.TrimSpace(form.TelegramAllowedChatIDs)
+
+	next.SecurityBootstrapped = true
+	next.SecurityEnabled = form.SecurityEnabled
+	if form.SecurityIntervalMin >= 2 && form.SecurityIntervalMin <= 1440 {
+		next.SecurityIntervalMin = form.SecurityIntervalMin
+	} else if next.SecurityIntervalMin < 2 {
+		next.SecurityIntervalMin = 5
+	}
+	next.TrustedSSHIPS = strings.TrimSpace(form.TrustedSSHIPS)
+	if form.OutboundSpikeMbps >= 5 && form.OutboundSpikeMbps <= 100000 {
+		next.OutboundSpikeMbps = form.OutboundSpikeMbps
+	} else if next.OutboundSpikeMbps <= 0 {
+		next.OutboundSpikeMbps = 50
+	}
+	if form.ConnSpikeThreshold >= 100 && form.ConnSpikeThreshold <= 1000000 {
+		next.ConnSpikeThreshold = form.ConnSpikeThreshold
+	} else if next.ConnSpikeThreshold < 100 {
+		next.ConnSpikeThreshold = 1200
+	}
 
 	if DB != nil {
 		if err := DB.Save(&next).Error; err != nil {
@@ -571,6 +631,32 @@ func (ao *AIOpsClass) RunSentinelTick() {
 
 	if !cfg.Enabled || ServerShared == nil {
 		return
+	}
+
+	// 1. Every 1 minute: evaluate real-time security metrics (outbound exfiltration & connection flood)
+	if cfg.SecurityEnabled {
+		secAnomalies := ao.evaluateRealtimeSecurityMetrics(cfg, now)
+		if len(secAnomalies) > 0 {
+			go func(items []detectedSecurityAnomaly) {
+				for _, item := range items {
+					ao.investigateSecurityAnomaly(item)
+				}
+			}(secAnomalies)
+		}
+
+		secInterval := cfg.SecurityIntervalMin
+		if secInterval < 2 {
+			secInterval = 5
+		}
+		ao.securityMu.Lock()
+		dueSweep := ao.lastSecuritySweepAt.IsZero() || now.Sub(ao.lastSecuritySweepAt) >= time.Duration(secInterval)*time.Minute-15*time.Second
+		if dueSweep {
+			ao.lastSecuritySweepAt = now
+		}
+		ao.securityMu.Unlock()
+		if dueSweep {
+			go ao.runSecurityFingerprintSweep(cfg)
+		}
 	}
 
 	ao.sentinelMu.Lock()

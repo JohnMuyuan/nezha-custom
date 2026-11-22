@@ -46,6 +46,11 @@ vi.mock("swr", () => ({
                     has_telegram_token: false,
                     telegram_endpoint: "https://api.telegram.org",
                     telegram_allowed_chat_ids: "",
+                    security_enabled: true,
+                    security_interval_min: 5,
+                    trusted_ssh_ips: "23.147.56.205",
+                    outbound_spike_mbps: 50,
+                    conn_spike_threshold: 1200,
                 },
                 mutate: vi.fn(),
             }
