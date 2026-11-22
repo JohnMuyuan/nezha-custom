@@ -991,13 +991,15 @@ func BuildIPQualityScript() string {
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36"
 if ! command -v curl >/dev/null 2>&1; then echo "ERR|no_curl"; exit 0; fi
 
-# 1. IP metadata (primary: api.ipapi.is, fallback: ip-api.com)
-IPJSON=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "https://api.ipapi.is/" 2>/dev/null | tr -d '\r\n')
-if [ -n "$IPJSON" ] && echo "$IPJSON" | grep -q '"ip"'; then
-  echo "IPAPIIS|$IPJSON"
-else
-  IPFB=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,as,hosting,proxy,mobile,query" 2>/dev/null | tr -d '\r\n')
+# 1. IP metadata (primary: ip-api.com with hosting/proxy/mobile flags, fallback: api.ipapi.is)
+IPFB=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,as,hosting,proxy,mobile,query" 2>/dev/null | tr -d '\r\n')
+if [ -n "$IPFB" ] && echo "$IPFB" | grep -q '"success"'; then
   echo "IPAPICOM|$IPFB"
+else
+  IPJSON=$(curl -4 -fsS --connect-timeout 4 --max-time 6 "https://api.ipapi.is/" 2>/dev/null | tr -d '\r\n')
+  if [ -n "$IPJSON" ] && echo "$IPJSON" | grep -q '"ip"'; then
+    echo "IPAPIIS|$IPJSON"
+  fi
 fi
 
 # 2. Google region (detect CN redirect / 送中)
@@ -1092,6 +1094,32 @@ func ParseIPQualityOutput(raw string, checkedAt time.Time) *model.IPQualityRepor
 					q.IPType = "datacenter"
 				} else if strings.EqualFold(d.Company.Type, "isp") || strings.EqualFold(d.ASN.Type, "isp") {
 					q.IPType = "residential"
+				}
+			} else {
+				// ipapi.is free-tier flat string schema fallback
+				var flat struct {
+					IP      string `json:"ip"`
+					Company string `json:"company"`
+					ASN     string `json:"asn"`
+					City    string `json:"city"`
+					Region  string `json:"region"`
+					Country string `json:"country"`
+				}
+				if err := json.Unmarshal([]byte(body), &flat); err == nil && flat.IP != "" {
+					q.IP = flat.IP
+					if parts := strings.Fields(flat.ASN); len(parts) > 0 {
+						q.ASN = parts[0]
+						if len(parts) > 1 {
+							q.ISP = strings.Join(parts[1:], " ")
+						}
+					}
+					q.Org = flat.Company
+					if q.ISP == "" {
+						q.ISP = flat.Company
+					}
+					q.Country = flat.Country
+					q.Region = flat.Region
+					q.City = flat.City
 				}
 			}
 		} else if strings.HasPrefix(line, "IPAPICOM|") {
