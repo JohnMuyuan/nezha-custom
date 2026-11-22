@@ -30,6 +30,7 @@ type ConfigClass struct {
 
 // InitConfigFromPath 从给出的文件路径中加载配置
 func InitConfigFromPath(path string) error {
+	ConfigFilePath = path
 	store, err := frontend.NewStore(filepath.Join(filepath.Dir(path), "frontends"), FrontendTemplates)
 	if err != nil {
 		return err

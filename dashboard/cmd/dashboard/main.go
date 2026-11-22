@@ -116,10 +116,13 @@ func initSystem(bus chan<- *model.Service) error {
 		return err
 	}
 
-	// AI 运维哨兵（本地 0 Token 盯盘 -> 低级模型初筛 -> 高级模型深查）& Telegram 双向遥控
+	// AI 运维哨兵（本地 0 Token 盯盘 -> 低级模型初筛 -> 高级模型深查）& Telegram 双向遥控 & 每日定时备份调度
 	if _, err := singleton.CronShared.AddFunc("@every 1m", func() {
 		if singleton.AIOpsShared != nil {
 			singleton.AIOpsShared.RunSentinelTick()
+		}
+		if singleton.BackupShared != nil {
+			singleton.BackupShared.RunScheduledBackupTick()
 		}
 	}); err != nil {
 		return err

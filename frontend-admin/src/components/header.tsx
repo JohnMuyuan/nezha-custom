@@ -256,20 +256,36 @@ export default function Header() {
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
                             {profile.role === 0 && (
-                                <NavigationMenuItem>
-                                    <NzNavigationMenuLink
-                                        asChild
-                                        active={location.pathname === "/dashboard/ai-ops"}
-                                        className={navigationMenuTriggerStyle()}
-                                    >
-                                        <Link
-                                            to="/dashboard/ai-ops"
-                                            className="font-semibold text-primary"
+                                <>
+                                    <NavigationMenuItem>
+                                        <NzNavigationMenuLink
+                                            asChild
+                                            active={location.pathname === "/dashboard/ai-ops"}
+                                            className={navigationMenuTriggerStyle()}
                                         >
-                                            🤖 AI 运维助手
-                                        </Link>
-                                    </NzNavigationMenuLink>
-                                </NavigationMenuItem>
+                                            <Link
+                                                to="/dashboard/ai-ops"
+                                                className="font-semibold text-primary"
+                                            >
+                                                🤖 AI 运维助手
+                                            </Link>
+                                        </NzNavigationMenuLink>
+                                    </NavigationMenuItem>
+                                    <NavigationMenuItem>
+                                        <NzNavigationMenuLink
+                                            asChild
+                                            active={location.pathname === "/dashboard/migration"}
+                                            className={navigationMenuTriggerStyle()}
+                                        >
+                                            <Link
+                                                to="/dashboard/migration"
+                                                className="font-semibold"
+                                            >
+                                                🧳 备份与搬家
+                                            </Link>
+                                        </NzNavigationMenuLink>
+                                    </NavigationMenuItem>
+                                </>
                             )}
                         </>
                     )}
@@ -305,15 +321,26 @@ export default function Header() {
                                     </Link>
                                 ))}
                                 {profile.role === 0 && (
-                                    <Link
-                                        to="/dashboard/ai-ops"
-                                        className="py-1 text-sm font-semibold text-primary"
-                                        onClick={() => {
-                                            setOpen(false)
-                                        }}
-                                    >
-                                        🤖 AI 运维助手
-                                    </Link>
+                                    <>
+                                        <Link
+                                            to="/dashboard/ai-ops"
+                                            className="py-1 text-sm font-semibold text-primary"
+                                            onClick={() => {
+                                                setOpen(false)
+                                            }}
+                                        >
+                                            🤖 AI 运维助手
+                                        </Link>
+                                        <Link
+                                            to="/dashboard/migration"
+                                            className="py-1 text-sm font-semibold"
+                                            onClick={() => {
+                                                setOpen(false)
+                                            }}
+                                        >
+                                            🧳 备份与搬家
+                                        </Link>
+                                    </>
                                 )}
                             </div>
                             <DrawerFooter>

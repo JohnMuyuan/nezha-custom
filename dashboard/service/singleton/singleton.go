@@ -68,6 +68,7 @@ func LoadSingleton(bus chan<- *model.Service) (err error) {
 	OnlineHistoryShared = NewOnlineHistoryRecorder()
 	InspectionShared = NewInspectionClass()
 	AIOpsShared = NewAIOpsClass()
+	BackupShared = NewBackupClass()
 	// 最后初始化 ServiceSentinel
 	ServiceSentinelShared, err = NewServiceSentinel(bus)
 	return
@@ -84,6 +85,7 @@ func InitFrontendTemplates() error {
 
 // InitDBFromPath 从给出的文件路径中加载数据库
 func InitDBFromPath(path string) error {
+	DatabaseFilePath = path
 	var err error
 	if err = restrictSQLiteFileMode(path); err != nil {
 		log.Printf("NEZHA>> database file %s may be readable by other users: %v", path, err)
@@ -108,6 +110,7 @@ func InitDBFromPath(path string) error {
 		model.APIToken{}, model.MCPAuditLog{}, model.OnlineSession{},
 		model.ServerInspection{},
 		model.AIOpsConfig{}, model.AIOpsIncident{}, model.AIOpsChatSession{}, model.AIOpsChatMessage{},
+		model.BackupConfig{},
 		model.MCPOAuthClient{}, model.MCPOAuthCode{}, model.MCPOAuthGrant{})
 	if err != nil {
 		return err

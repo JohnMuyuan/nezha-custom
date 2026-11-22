@@ -40,6 +40,7 @@ const TerminalPage = lazy(() =>
 )
 const ThemeCustomPage = lazy(() => import("./routes/theme-custom"))
 const AIOpsPage = lazy(() => import("./routes/ai-ops"))
+const MigrationPage = lazy(() => import("./routes/migration"))
 
 const router = createBrowserRouter([
     {
@@ -198,6 +199,14 @@ const router = createBrowserRouter([
                             <AIOpsPage />
                         </Suspense>
                     </NotificationProvider>
+                ),
+            },
+            {
+                path: "/dashboard/migration",
+                element: (
+                    <Suspense fallback={<div className="p-6 text-xs text-muted-foreground">正在加载备份与搬家中心...</div>}>
+                        <MigrationPage />
+                    </Suspense>
                 ),
             },
         ],

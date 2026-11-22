@@ -236,6 +236,14 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	aiOpsGroup.POST("/patrol-now", adminHandler(triggerAIOpsPatrolNow))
 	aiOpsGroup.DELETE("/incidents", adminHandler(clearAIOpsIncidents))
 
+	backupGroup := auth.Group("/backup", patForbidden, restScopeMiddleware(model.ScopeAdminAll))
+	backupGroup.GET("/config", adminHandler(getBackupConfig))
+	backupGroup.PUT("/config", adminHandler(updateBackupConfig))
+	backupGroup.POST("/export", adminHandler(exportBackupArchive))
+	backupGroup.POST("/telegram-now", adminHandler(triggerTelegramBackupNow))
+	backupGroup.POST("/restore", adminHandler(restoreBackupArchive))
+	backupGroup.POST("/migrate-agents", adminHandler(batchMigrateAgents))
+
 	registerFrontendRoutes(auth)
 
 	r.NoRoute(fallbackToFrontend(frontendDist))
