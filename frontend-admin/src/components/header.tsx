@@ -255,6 +255,22 @@ export default function Header() {
                                     <Link to="/dashboard/transfer">{t("Transfer.Title")}</Link>
                                 </NzNavigationMenuLink>
                             </NavigationMenuItem>
+                            {profile.role === 0 && (
+                                <NavigationMenuItem>
+                                    <NzNavigationMenuLink
+                                        asChild
+                                        active={location.pathname === "/dashboard/ai-ops"}
+                                        className={navigationMenuTriggerStyle()}
+                                    >
+                                        <Link
+                                            to="/dashboard/ai-ops"
+                                            className="font-semibold text-primary"
+                                        >
+                                            🤖 AI 运维助手
+                                        </Link>
+                                    </NzNavigationMenuLink>
+                                </NavigationMenuItem>
+                            )}
                         </>
                     )}
                 </div>
@@ -288,6 +304,17 @@ export default function Header() {
                                         {item.label}
                                     </Link>
                                 ))}
+                                {profile.role === 0 && (
+                                    <Link
+                                        to="/dashboard/ai-ops"
+                                        className="py-1 text-sm font-semibold text-primary"
+                                        onClick={() => {
+                                            setOpen(false)
+                                        }}
+                                    >
+                                        🤖 AI 运维助手
+                                    </Link>
+                                )}
                             </div>
                             <DrawerFooter>
                                 <DrawerClose asChild>

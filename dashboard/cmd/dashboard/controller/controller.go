@@ -222,6 +222,20 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.POST("/inspections/run-all", restScopeMiddleware(model.ScopeAdminAll), adminHandler(runAllServerInspections))
 	auth.POST("/inspections/:id/run", restScopeMiddleware(model.ScopeAdminAll), adminHandler(runServerInspection))
 	auth.POST("/maintenance", restScopeMiddleware(model.ScopeAdminAll), adminHandler(runMaintenance))
+
+	aiOpsGroup := auth.Group("/ai-ops", patForbidden, restScopeMiddleware(model.ScopeAdminAll))
+	aiOpsGroup.GET("/config", adminHandler(getAIOpsConfig))
+	aiOpsGroup.PUT("/config", adminHandler(updateAIOpsConfig))
+	aiOpsGroup.POST("/test-model", adminHandler(testAIOpsModel))
+	aiOpsGroup.GET("/sessions", adminHandler(listAIOpsSessions))
+	aiOpsGroup.GET("/sessions/:id", adminHandler(getAIOpsSession))
+	aiOpsGroup.DELETE("/sessions/:id", adminHandler(deleteAIOpsSession))
+	aiOpsGroup.POST("/sessions/:id/cancel", adminHandler(cancelAIOpsSession))
+	aiOpsGroup.POST("/chat", adminHandler(postAIOpsChat))
+	aiOpsGroup.GET("/incidents", adminHandler(listAIOpsIncidents))
+	aiOpsGroup.POST("/patrol-now", adminHandler(triggerAIOpsPatrolNow))
+	aiOpsGroup.DELETE("/incidents", adminHandler(clearAIOpsIncidents))
+
 	registerFrontendRoutes(auth)
 
 	r.NoRoute(fallbackToFrontend(frontendDist))

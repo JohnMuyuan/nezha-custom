@@ -67,6 +67,7 @@ func LoadSingleton(bus chan<- *model.Service) (err error) {
 	ServerTransferShared = NewServerTransferClass()
 	OnlineHistoryShared = NewOnlineHistoryRecorder()
 	InspectionShared = NewInspectionClass()
+	AIOpsShared = NewAIOpsClass()
 	// 最后初始化 ServiceSentinel
 	ServiceSentinelShared, err = NewServiceSentinel(bus)
 	return
@@ -106,6 +107,7 @@ func InitDBFromPath(path string) error {
 		model.WAF{}, model.Oauth2Bind{}, model.ServerTransfer{}, model.JWTSession{},
 		model.APIToken{}, model.MCPAuditLog{}, model.OnlineSession{},
 		model.ServerInspection{},
+		model.AIOpsConfig{}, model.AIOpsIncident{}, model.AIOpsChatSession{}, model.AIOpsChatMessage{},
 		model.MCPOAuthClient{}, model.MCPOAuthCode{}, model.MCPOAuthGrant{})
 	if err != nil {
 		return err

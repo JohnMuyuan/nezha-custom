@@ -116,6 +116,18 @@ func initSystem(bus chan<- *model.Service) error {
 		return err
 	}
 
+	// AI 运维哨兵（本地 0 Token 盯盘 -> 低级模型初筛 -> 高级模型深查）& Telegram 双向遥控
+	if _, err := singleton.CronShared.AddFunc("@every 1m", func() {
+		if singleton.AIOpsShared != nil {
+			singleton.AIOpsShared.RunSentinelTick()
+		}
+	}); err != nil {
+		return err
+	}
+	if singleton.AIOpsShared != nil {
+		singleton.AIOpsShared.StartBackgroundWorkers()
+	}
+
 	if err := singleton.StartJWTSessionGC(); err != nil {
 		return err
 	}

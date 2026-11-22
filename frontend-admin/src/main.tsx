@@ -33,6 +33,7 @@ import WAFPage from "./routes/waf"
 import ApiTokensPage from "./routes/api-tokens"
 import FrontendsPage from "./routes/frontends"
 import ThemeCustomPage from "./routes/theme-custom"
+import AIOpsPage from "./routes/ai-ops"
 import MCPOAuthAuthorizePage from "./routes/mcp-oauth-authorize"
 import MCPOAuthManagementPage from "./routes/mcp-oauth-management"
 
@@ -178,6 +179,14 @@ const router = createBrowserRouter([
             {
                 path: "/dashboard/transfer",
                 element: <TransferPage />,
+            },
+            {
+                path: "/dashboard/ai-ops",
+                element: (
+                    <NotificationProvider withNotifierGroup>
+                        <AIOpsPage />
+                    </NotificationProvider>
+                ),
             },
         ],
     },
