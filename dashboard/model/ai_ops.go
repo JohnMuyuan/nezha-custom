@@ -42,12 +42,14 @@ type AIOpsConfig struct {
 	TelegramAllowedChatIDs string `json:"telegram_allowed_chat_ids"` // 逗号分隔的管理员 Chat ID 白名单
 
 	// AI 安全入侵与防攻击哨兵（SSH 陌生登录 / 后门篡改 / 数据外泄 / CC 与连接洪泛）
-	SecurityBootstrapped bool    `json:"-"`
-	SecurityEnabled      bool    `json:"security_enabled"`
-	SecurityIntervalMin  int     `json:"security_interval_min"`  // SSH 与文件哈希轻量巡检间隔（分钟，默认 5）
-	TrustedSSHIPS        string  `json:"trusted_ssh_ips"`        // 信任的管理员 SSH 登录 IP / CIDR 白名单
-	OutboundSpikeMbps    float64 `json:"outbound_spike_mbps"`    // 疑似数据外泄持续上传网速阈值（Mbps，默认 50）
-	ConnSpikeThreshold   uint64  `json:"conn_spike_threshold"`   // 疑似网站被攻击 TCP+UDP 连接数阈值（默认 1200）
+	SecurityBootstrapped     bool    `json:"-"`
+	SecurityAutoBootstrapped bool    `json:"-"`
+	SecurityEnabled          bool    `json:"security_enabled"`
+	SecurityAutoRespond      bool    `json:"security_auto_respond"` // 高危入侵/攻击时是否先斩后奏自动应急反制（踢会话/封IP/杀木马）
+	SecurityIntervalMin      int     `json:"security_interval_min"` // SSH 与文件哈希轻量巡检间隔（分钟，默认 2）
+	TrustedSSHIPS            string  `json:"trusted_ssh_ips"`       // 信任的管理员 SSH 登录 IP / CIDR 白名单
+	OutboundSpikeMbps        float64 `json:"outbound_spike_mbps"`   // 疑似数据外泄持续上传网速阈值（Mbps，默认 50）
+	ConnSpikeThreshold       uint64  `json:"conn_spike_threshold"`  // 疑似网站被攻击 TCP+UDP 连接数阈值（默认 1200）
 }
 
 // AIOpsConfigView is the admin-facing DTO with masked secrets.
@@ -75,6 +77,7 @@ type AIOpsConfigView struct {
 	TelegramEndpoint       string  `json:"telegram_endpoint"`
 	TelegramAllowedChatIDs string  `json:"telegram_allowed_chat_ids"`
 	SecurityEnabled        bool    `json:"security_enabled"`
+	SecurityAutoRespond    bool    `json:"security_auto_respond"`
 	SecurityIntervalMin    int     `json:"security_interval_min"`
 	TrustedSSHIPS          string  `json:"trusted_ssh_ips"`
 	OutboundSpikeMbps      float64 `json:"outbound_spike_mbps"`
@@ -105,6 +108,7 @@ type AIOpsConfigUpdateForm struct {
 	TelegramEndpoint       string  `json:"telegram_endpoint"`
 	TelegramAllowedChatIDs string  `json:"telegram_allowed_chat_ids"`
 	SecurityEnabled        bool    `json:"security_enabled"`
+	SecurityAutoRespond    bool    `json:"security_auto_respond"`
 	SecurityIntervalMin    int     `json:"security_interval_min"`
 	TrustedSSHIPS          string  `json:"trusted_ssh_ips"`
 	OutboundSpikeMbps      float64 `json:"outbound_spike_mbps"`
@@ -155,6 +159,7 @@ func (c *AIOpsConfig) ToView() AIOpsConfigView {
 		TelegramEndpoint:       c.TelegramEndpoint,
 		TelegramAllowedChatIDs: c.TelegramAllowedChatIDs,
 		SecurityEnabled:        c.SecurityEnabled,
+		SecurityAutoRespond:    c.SecurityAutoRespond,
 		SecurityIntervalMin:    c.SecurityIntervalMin,
 		TrustedSSHIPS:          c.TrustedSSHIPS,
 		OutboundSpikeMbps:      c.OutboundSpikeMbps,

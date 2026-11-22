@@ -24,6 +24,7 @@ export interface AIOpsConfigView {
     telegram_endpoint: string
     telegram_allowed_chat_ids: string
     security_enabled: boolean
+    security_auto_respond: boolean
     security_interval_min: number
     trusted_ssh_ips: string
     outbound_spike_mbps: number
@@ -51,6 +52,7 @@ export interface AIOpsConfigUpdatePayload {
     telegram_endpoint: string
     telegram_allowed_chat_ids: string
     security_enabled: boolean
+    security_auto_respond: boolean
     security_interval_min: number
     trusted_ssh_ips: string
     outbound_spike_mbps: number

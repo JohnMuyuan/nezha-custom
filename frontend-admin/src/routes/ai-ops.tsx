@@ -407,7 +407,8 @@ export default function AIOpsPage() {
         telegram_endpoint: "https://api.telegram.org",
         telegram_allowed_chat_ids: "",
         security_enabled: true,
-        security_interval_min: 5,
+        security_auto_respond: true,
+        security_interval_min: 2,
         trusted_ssh_ips: "",
         outbound_spike_mbps: 50,
         conn_spike_threshold: 1200,
@@ -439,7 +440,8 @@ export default function AIOpsPage() {
             telegram_endpoint: view.telegram_endpoint || "https://api.telegram.org",
             telegram_allowed_chat_ids: view.telegram_allowed_chat_ids || "",
             security_enabled: view.security_enabled ?? true,
-            security_interval_min: view.security_interval_min || 5,
+            security_auto_respond: view.security_auto_respond ?? true,
+            security_interval_min: view.security_interval_min || 2,
             trusted_ssh_ips: view.trusted_ssh_ips || "",
             outbound_spike_mbps: view.outbound_spike_mbps || 50,
             conn_spike_threshold: view.conn_spike_threshold || 1200,
@@ -669,6 +671,30 @@ export default function AIOpsPage() {
         }
     }
 
+    const handleRollbackSecurityAction = async (inc: AIOpsIncident) => {
+        if (submittingChat) return
+        setSubmittingChat(true)
+        try {
+            const unbanPrompt = `管理员确认刚才在服务器「${inc.server_name}」(server_id=${inc.server_id}) 执行的自动应急反制属于误伤或需要撤销。请立刻通过 Agent 上机查看该次反制报告中封禁的 IP 规则与 /root/ai-sec-quarantine/ 备份，帮我立即解除对应的防火墙封禁（iptables / nft / ufw）并按需恢复备份，验证恢复正常后向我汇报：\n\n${inc.large_report}`
+            const res = await postAIOpsChat({
+                session_id: 0,
+                title: `🔓 误伤解禁：${inc.server_name}`,
+                prompt: unbanPrompt,
+            })
+            setSelectedSessionId(res.session_id)
+            setActiveTab("chat")
+            await mutateSessions()
+            await mutateSessionDetail()
+            toast.success(`已派发解禁/回滚指令到「${inc.server_name}」！`)
+        } catch (err: any) {
+            toast.error("派发解禁任务失败", {
+                description: err?.message || "请检查模型配置",
+            })
+        } finally {
+            setSubmittingChat(false)
+        }
+    }
+
     return (
         <div className="mx-auto max-w-6xl px-3 pb-10">
             {/* 顶部状态头 */}
@@ -690,7 +716,9 @@ export default function AIOpsPage() {
                         </span>
                         {cfgData?.enabled && cfgData?.security_enabled && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2.5 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-300">
-                                🛡️ 入侵与防攻击护盾已开启
+                                {cfgData?.security_auto_respond
+                                    ? "⚡ 先斩后奏反制护盾运行中"
+                                    : "🛡️ 入侵与防攻击护盾已开启"}
                             </span>
                         )}
                         {cfgData?.telegram_enabled && cfgData?.has_telegram_token && (
@@ -1049,8 +1077,10 @@ export default function AIOpsPage() {
                                             )
                                         case "healed":
                                             return (
-                                                <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                                                    🛠️ 已出诊断并自动处置
+                                                <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                                                    {isSecurityEvent
+                                                        ? "⚡ 已先斩后奏反制止损"
+                                                        : "🛠️ 已出诊断并自动处置"}
                                                 </span>
                                             )
                                         default:
@@ -1109,6 +1139,7 @@ export default function AIOpsPage() {
                                             <div className="flex items-center gap-2">
                                                 {inc.server_id > 0 &&
                                                     inc.status === "reported" &&
+                                                    !isVerifiedBenign &&
                                                     Boolean(inc.large_report) && (
                                                         <Button
                                                             type="button"
@@ -1121,6 +1152,24 @@ export default function AIOpsPage() {
                                                         >
                                                             <Sparkles className="h-3.5 w-3.5" />
                                                             一键让 AI 按此建议去处理
+                                                        </Button>
+                                                    )}
+                                                {inc.server_id > 0 &&
+                                                    inc.status === "healed" &&
+                                                    isSecurityEvent &&
+                                                    Boolean(inc.large_report) && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            disabled={submittingChat}
+                                                            onClick={() =>
+                                                                handleRollbackSecurityAction(inc)
+                                                            }
+                                                            className="h-7 gap-1.5 text-xs"
+                                                        >
+                                                            <RotateCcw className="h-3.5 w-3.5" />
+                                                            误伤解禁 / 撤销反制
                                                         </Button>
                                                     )}
                                                 <span className="text-[11px] text-muted-foreground">
@@ -1575,23 +1624,44 @@ export default function AIOpsPage() {
                                 🚨 AI 安全入侵与防攻击护盾（防陌生 SSH 登录 / 后门篡改 / 拖库外泄 / 网站被攻击）
                             </legend>
 
-                            <div className="flex items-center gap-2.5 rounded-lg border border-rose-500/25 bg-rose-500/5 px-3.5 py-2.5">
-                                <Checkbox
-                                    id="ai_security_enable"
-                                    checked={formState.security_enabled}
-                                    onCheckedChange={(v) =>
-                                        setFormState({
-                                            ...formState,
-                                            security_enabled: Boolean(v),
-                                        })
-                                    }
-                                />
-                                <Label
-                                    htmlFor="ai_security_enable"
-                                    className="cursor-pointer text-xs font-semibold leading-snug"
-                                >
-                                    🛡️ 启用全天候安全入侵与防攻击哨兵（静默核对 SSH 登录与公钥/账号/定时任务指纹 + 监控出站流量与连接暴涨，平时 0 Token 消耗！）
-                                </Label>
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2.5 rounded-lg border border-rose-500/25 bg-rose-500/5 px-3.5 py-2.5">
+                                    <Checkbox
+                                        id="ai_security_enable"
+                                        checked={formState.security_enabled}
+                                        onCheckedChange={(v) =>
+                                            setFormState({
+                                                ...formState,
+                                                security_enabled: Boolean(v),
+                                            })
+                                        }
+                                    />
+                                    <Label
+                                        htmlFor="ai_security_enable"
+                                        className="cursor-pointer text-xs font-semibold leading-snug"
+                                    >
+                                        🛡️ 启用全天候安全入侵与防攻击哨兵（静默监控每次 SSH 登录与公钥/账号/定时任务内容指纹 + 监控出站流量与连接暴涨，平时 0 Token 消耗！）
+                                    </Label>
+                                </div>
+
+                                <div className="flex items-center gap-2.5 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3.5 py-2.5">
+                                    <Checkbox
+                                        id="ai_security_auto_respond"
+                                        checked={formState.security_auto_respond}
+                                        onCheckedChange={(v) =>
+                                            setFormState({
+                                                ...formState,
+                                                security_auto_respond: Boolean(v),
+                                            })
+                                        }
+                                    />
+                                    <Label
+                                        htmlFor="ai_security_auto_respond"
+                                        className="cursor-pointer text-xs font-semibold leading-snug text-amber-900 dark:text-amber-200"
+                                    >
+                                        ⚡ 高危入侵/攻击自动「先斩后奏」应急反制（不等审批，确认陌生 SSH 入侵、恶意后门、木马外泄或洪泛攻击时，AI 立刻踢出会话、强杀恶意进程并封禁攻击 IP，再推送战报与一键解禁按钮；绝不碰 nezha-agent 与白名单 IP！）
+                                    </Label>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
@@ -1645,13 +1715,13 @@ export default function AIOpsPage() {
                                     <Input
                                         id="security_interval_min"
                                         type="number"
-                                        min={2}
+                                        min={1}
                                         max={1440}
                                         value={formState.security_interval_min}
                                         onChange={(e) =>
                                             setFormState({
                                                 ...formState,
-                                                security_interval_min: Number(e.target.value) || 5,
+                                                security_interval_min: Number(e.target.value) || 2,
                                             })
                                         }
                                     />

@@ -42,6 +42,11 @@ var (
 		regexp.MustCompile(`(?i)\bip\s+link\s+set\s+\S+\s+down\b`),
 	}
 
+	fwToolLineRegex   = regexp.MustCompile(`(?i)\b(iptables|ip6tables|nft|ufw|fail2ban-client|firewall-cmd)\b`)
+	fwBanVerbRegex    = regexp.MustCompile(`(?i)\b(drop|reject|deny|banip|add-rich-rule)\b`)
+	fwUnbanVerbRegex  = regexp.MustCompile(`(?i)(^|\s)(-D|--delete|delete|unbanip|remove-rich-rule|allow)\b`)
+	ipv4ExtractRegex  = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+
 	// Mutating patterns rejected when readOnly == true (background unattended patrol without self-heal).
 	readOnlyMutatingPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)(^|[;&|]\s*)(sudo\s+)?(rm|rmdir|mv|cp|chmod|chown|kill|pkill|killall|reboot|truncate|fallocate|userdel|usermod|passwd|crontab)\b`),
@@ -69,6 +74,30 @@ func ValidateAICommandSafety(cmd string, readOnly bool) error {
 		for _, pat := range readOnlyMutatingPatterns {
 			if pat.MatchString(trimmed) {
 				return errors.New("只读巡检模式拦截：后台自动巡检默认仅允许只读排查命令（如需修改可在对话窗口下达指令，或开启后台自愈开关）")
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateTrustedIPNotBanned ensures automated firewall countermeasures NEVER accidentally ban
+// loopback (127.0.0.1) or any administrator-whitelisted IP/CIDR from trusted_ssh_ips, while
+// still allowing unban/delete commands (-D / delete / unbanip) for those same IPs.
+func ValidateTrustedIPNotBanned(cmd string, trustedCSV string) error {
+	for _, line := range strings.Split(cmd, "\n") {
+		l := strings.TrimSpace(line)
+		if l == "" || strings.HasPrefix(l, "#") {
+			continue
+		}
+		if !fwToolLineRegex.MatchString(l) || !fwBanVerbRegex.MatchString(l) {
+			continue
+		}
+		if fwUnbanVerbRegex.MatchString(l) {
+			continue
+		}
+		for _, ip := range ipv4ExtractRegex.FindAllString(l, -1) {
+			if isTrustedSSHIP(ip, trustedCSV) {
+				return fmt.Errorf("防误封护栏拦截：禁止防火墙封禁本机或管理员白名单 IP (%s)", ip)
 			}
 		}
 	}
@@ -387,6 +416,15 @@ func (ao *AIOpsClass) executeToolCall(
 			step.Summary = fmt.Sprintf("安全拦截 [%s]: %s", srv.Name, err.Error())
 			step.Output = err.Error()
 			return fmt.Sprintf(`{"error":%q}`, err.Error()), step
+		}
+		if !readOnly {
+			cfgSnap := ao.GetConfigSnapshot()
+			if err := ValidateTrustedIPNotBanned(args.Command, cfgSnap.TrustedSSHIPS); err != nil {
+				step.IsError = true
+				step.Summary = fmt.Sprintf("防误封拦截 [%s]: %s", srv.Name, err.Error())
+				step.Output = err.Error()
+				return fmt.Sprintf(`{"error":%q}`, err.Error()), step
+			}
 		}
 
 		timeout := 120 * time.Second

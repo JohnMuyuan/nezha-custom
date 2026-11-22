@@ -212,6 +212,26 @@ MISSING /etc/ld.so.preload
 	if !hadUnclosed || truncClean != "" {
 		t.Fatalf("expected unclosed <thinking> to be detected with empty output, got hadUnclosed=%v clean=%q", hadUnclosed, truncClean)
 	}
+
+	// Verify anti-self-lockout firewall guardrail:
+	// - Attacker IP DROP is allowed
+	// - Whitelisted / loopback IP DROP is blocked
+	// - Unbanning (-D / delete / unbanip) a whitelisted IP is ALWAYS allowed
+	if err := ValidateTrustedIPNotBanned("iptables -I INPUT -s 185.220.101.9 -j DROP", allow); err != nil {
+		t.Fatalf("expected attacker IP ban to be allowed, got: %v", err)
+	}
+	if err := ValidateTrustedIPNotBanned("iptables -I INPUT -s 23.147.56.205 -j DROP", allow); err == nil {
+		t.Fatal("expected whitelisted admin IP ban to be blocked")
+	}
+	if err := ValidateTrustedIPNotBanned("ufw insert 1 deny from 10.8.4.99", allow); err == nil {
+		t.Fatal("expected whitelisted CIDR IP ban to be blocked")
+	}
+	if err := ValidateTrustedIPNotBanned("iptables -I INPUT -s 127.0.0.1 -j DROP", allow); err == nil {
+		t.Fatal("expected loopback IP ban to be blocked")
+	}
+	if err := ValidateTrustedIPNotBanned("iptables -D INPUT -s 23.147.56.205 -j DROP", allow); err != nil {
+		t.Fatalf("expected unbanning a whitelisted IP (-D) to be allowed, got: %v", err)
+	}
 }
 
 func TestWrapCommandAndHistoryCoalesce(t *testing.T) {

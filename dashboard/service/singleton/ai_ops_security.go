@@ -20,15 +20,16 @@ const (
 echo "===WHO==="
 who 2>/dev/null | head -n 20
 echo "===AUTH_ACCEPTED==="
-if command -v journalctl >/dev/null 2>&1; then
-  journalctl -u ssh -u sshd --since "-12min" --no-pager -q 2>/dev/null | grep -E "Accepted (password|publickey|keyboard-interactive)" | tail -n 12
+if command -v journalctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  journalctl -t sshd -t sshd-session -u ssh -u sshd --since "-12min" --no-pager -q 2>/dev/null | grep -E "Accepted (password|publickey|keyboard-interactive|hostbased|gssapi)" | tail -n 20
+else
+  for f in /var/log/auth.log /var/log/secure; do
+    if [ -r "$f" ]; then
+      tail -n 250 "$f" 2>/dev/null | grep -E "Accepted (password|publickey|keyboard-interactive|hostbased|gssapi)" | tail -n 12
+      break
+    fi
+  done
 fi
-for f in /var/log/auth.log /var/log/secure; do
-  if [ -r "$f" ]; then
-    tail -n 250 "$f" 2>/dev/null | grep -E "Accepted (password|publickey|keyboard-interactive)" | tail -n 12
-    break
-  fi
-done
 echo "===HASHES==="
 for p in /root/.ssh/authorized_keys /etc/passwd /etc/shadow /etc/sudoers /etc/ld.so.preload /etc/crontab; do
   if [ -e "$p" ]; then
@@ -42,8 +43,8 @@ find /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.mon
 done
 echo "===HASHES_END==="
 echo "===BRUTE_10M==="
-if command -v journalctl >/dev/null 2>&1; then
-  journalctl -u ssh -u sshd --since "-10min" --no-pager -q 2>/dev/null | grep -c "Failed password" || true
+if command -v journalctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  journalctl -t sshd -t sshd-session -u ssh -u sshd --since "-10min" --no-pager -q 2>/dev/null | grep -c "Failed password" || true
 fi`
 
 	aiOpsSSHForensicSh = `export LC_ALL=C; echo "=== ACTIVE TTY & COMMANDS (w) ==="; w 2>/dev/null; echo "=== PROCESS TREE ==="; ps -eo pid,ppid,user,%cpu,%mem,lstart,args --sort=-pid 2>/dev/null | head -n 35; echo "=== LAST 10 LOGINS ==="; last -n 10 -i 2>/dev/null; echo "=== ESTABLISHED SSH/NET ==="; ss -tunp state established 2>/dev/null | head -n 30; echo "=== AUTHORIZED_KEYS META ==="; ls -la /root/.ssh 2>/dev/null; tail -n 10 /root/.ssh/authorized_keys 2>/dev/null`
@@ -422,23 +423,26 @@ func (ao *AIOpsClass) diffServerSecurityFingerprint(
 	var findings []detectedSecurityAnomaly
 
 	// 1. Check for NEW untrusted SSH logins (Accepted or newly appeared interactive PTY)
+	// Refresh timestamp on already-seen entries so historical lines in static auth.log never re-fire after 4h.
 	var untrustedEvents []string
 	for _, ev := range parsed.AcceptedSSH {
 		key := "acc:" + ev.Raw
-		if _, seen := st.seenLogins[key]; seen {
+		_, seen := st.seenLogins[key]
+		st.seenLogins[key] = now
+		if seen {
 			continue
 		}
-		st.seenLogins[key] = now
 		if !isTrustedSSHIP(ev.IP, cfg.TrustedSSHIPS) {
 			untrustedEvents = append(untrustedEvents, fmt.Sprintf("用户 %s 通过 %s 从陌生 IP [%s] 成功登录 SSH", ev.User, ev.Method, ev.IP))
 		}
 	}
 	for _, ev := range parsed.ActiveSSH {
 		key := "who:" + ev.User + "@" + ev.IP
-		if _, seen := st.seenLogins[key]; seen {
+		_, seen := st.seenLogins[key]
+		st.seenLogins[key] = now
+		if seen {
 			continue
 		}
-		st.seenLogins[key] = now
 		if !isTrustedSSHIP(ev.IP, cfg.TrustedSSHIPS) {
 			untrustedEvents = append(untrustedEvents, fmt.Sprintf("检测到来自陌生 IP [%s] 的活跃 SSH 终端会话 (用户: %s)", ev.IP, ev.User))
 		}
@@ -557,6 +561,8 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 	}
 
 	// Step 2: For traffic/connection surges (not confirmed SSH login/file tamper), let Small Model filter normal proxy/CDN bursts first
+	autoStrike := cfg.SecurityAutoRespond || cfg.AutoSelfHeal
+
 	if !item.directToLarge && smallURL != "" && smallKey != "" && smallModel != "" {
 		triagePrompt := fmt.Sprintf(`你是服务器集群的「AI 安全值班员」。
 安全哨兵在服务器 [%s] (#%d) 捕获到以下网络/安全异常：%s
@@ -586,13 +592,21 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 				}).Error
 				return
 			}
+			suffix := ""
+			if autoStrike {
+				suffix = "（已授权先斩后奏自动应急反制）"
+			}
 			_ = DB.Model(&incident).Updates(map[string]any{
 				"severity":      verdict.Severity,
-				"small_verdict": fmt.Sprintf("[%s 判定疑似攻击/风险] %s", smallModel, verdict.Summary),
+				"small_verdict": fmt.Sprintf("[%s 判定疑似攻击/风险] %s%s", smallModel, verdict.Summary, suffix),
 			}).Error
 		}
 	} else if item.directToLarge {
-		_ = DB.Model(&incident).Update("small_verdict", "🚨 高危入侵/篡改事件：已跳过初筛直接唤醒高级安全专家取证！").Error
+		verdictMsg := "🚨 高危入侵/篡改事件：已跳过初筛直接唤醒高级安全专家取证！"
+		if autoStrike {
+			verdictMsg = "⚡ 高危入侵/篡改事件：已授权高级安全专家先斩后奏，立即上机取证并自动反制止损！"
+		}
+		_ = DB.Model(&incident).Update("small_verdict", verdictMsg).Error
 	}
 
 	if largeURL == "" || largeKey == "" || largeModel == "" {
@@ -604,7 +618,35 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 		return
 	}
 
-	securityPrompt := fmt.Sprintf(`安全入侵哨兵在服务器 [%s] (server_id=%d) 捕获到以下安全事件，请你立即作为高级安全响应专家上机取证分析：
+	trustedDesc := strings.TrimSpace(cfg.TrustedSSHIPS)
+	if trustedDesc == "" {
+		trustedDesc = "（暂未填写）"
+	}
+
+	var securityPrompt string
+	if autoStrike {
+		securityPrompt = fmt.Sprintf(`安全入侵哨兵在服务器 [%s] (server_id=%d) 捕获到以下高危安全事件。管理员已明确授权你执行【先斩后奏·自动应急反制】——请立即使用 exec_on_server（server_id=%d）上机核查并在确认风险后直接动手止损，不要干等审批！
+
+- 触发类型：%s
+- 警报摘要：%s
+- 管理员信任 IP 白名单（绝对禁止封禁或踢出）：%s
+- 初步现场取证快照：
+%s
+
+【先斩后奏·自动应急反制铁律】：
+1. **先 30 秒核查，区分真攻击 vs 正常维护**：
+   - 若核查确认属于**正常面板/系统维护**（如宝塔、1Panel、acme.sh、apt 更新）或**正常代理/网站容器业务流量**，**绝不动手**，直接在报告最末尾单独附上一行标记：[BENIGN_CHANGE]
+2. **确认属实后立刻先斩后奏动手止损**：
+   - **陌生 IP 登录 SSH (`+"`security_ssh`"+`)**：只要确认来源 IP 不在管理员白名单中，立即：① 保留其登录来源、当前执行的命令与进程树证据；② 强制踢出该陌生 IP 的活跃 SSH 终端会话并强杀其派生的任何可疑子进程；③ 立即使用宿主机防火墙封禁该来源 IP（优先 `+"`iptables -I INPUT -s <IP> -j DROP`"+` 或 `+"`nft`"+`/`+"`ufw`"+`）；④ 若发现写入了陌生 SSH 公钥、后门 crontab 或恶意 systemd 服务，先拷贝备份到 `+"`/root/ai-sec-quarantine/`"+` 再立即清除。
+   - **敏感文件/定时任务被恶意篡改 (`+"`security_tamper`"+`)**：若确认为恶意外来后门（陌生公钥、curl|sh 挖矿定时任务、ld.so.preload、可疑新账户），先备份样本到 `+"`/root/ai-sec-quarantine/`"+`，立刻清除恶意条目、查杀关联进程并封禁来源 IP。
+   - **疑似数据外泄 (`+"`security_exfil`"+`)**：若确认为非正常业务的木马/挖矿/恶意窃密脚本向陌生外网 IP 发包，立即强杀对应 PID 并封禁目标外联 IP。
+   - **网站被 CC/洪泛攻击或无认证端口被打爆 (`+"`security_attack`"+`)**：查清排名前列的恶意源 IP（严禁误封 Cloudflare/CDN 回源 IP 与管理员白名单）或暴露滥用的无认证服务（如 iperf3），立即用防火墙封禁恶意源 IP 或停用被滥用的无认证服务。
+   - **SSH 猛烈爆破 (`+"`security_bruteforce`"+`)**：提取过去 10 分钟失败次数排名前 5~10 的外部爆破 IP（严禁包含白名单），直接用防火墙批量封禁。
+3. **绝对底线**：严禁停止/重启/删除 `+"`nezha-agent`"+`（这是管理员紧急救援通道！）；严禁封禁 `+"`127.0.0.1`"+` 或白名单中的 IP；严禁执行 `+"`iptables -P INPUT DROP`"+` 或 `+"`iptables -F`"+`；反制完成后务必再次验证（`+"`ss`"+` / `+"`ps`"+` / 防火墙规则列表）确认威胁已消除。
+4. 请输出清晰的中文 Markdown 战报，必须包含：【风险定级与处置结论】、【现场取证与已执行的反制动作】、【验证结果】、【🔓 如属误伤一键解禁命令】（列出确切的解封 IP 命令或备份恢复路径，方便管理员随时通过探针一键撤销）。`,
+			srv.Name, srv.ID, srv.ID, item.triggerType, item.summary, trustedDesc, forensicOut)
+	} else {
+		securityPrompt = fmt.Sprintf(`安全入侵哨兵在服务器 [%s] (server_id=%d) 捕获到以下安全事件，请你立即作为高级安全响应专家上机取证分析：
 - 触发类型：%s
 - 警报摘要：%s
 - 初步现场取证快照：
@@ -617,16 +659,17 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 
 请输出清晰的中文 Markdown 安全取证报告，包含：【风险定级与结论】、【攻击源 / 可疑进程取证详情】、【一键封禁 / 处置建议】。
 若经你上机核查确认本次事件纯属正常面板/系统定时任务（如宝塔、1Panel、acme.sh、apt 更新）或误报、无任何入侵迹象，请在报告最末尾单独附上一行标记：[BENIGN_CHANGE]`,
-		srv.Name, srv.ID, item.triggerType, item.summary, forensicOut, srv.ID)
+			srv.Name, srv.ID, item.triggerType, item.summary, forensicOut, srv.ID)
+	}
 
-	invCtx, invCancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	invCtx, invCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	report, steps, lErr := ao.runAgentReActLoop(
 		invCtx,
 		largeURL,
 		largeKey,
 		largeModel,
 		[]llmChatMessage{{Role: "user", Content: securityPrompt}},
-		!cfg.AutoSelfHeal,
+		!autoStrike,
 		nil,
 	)
 	invCancel()
@@ -647,7 +690,7 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 	report = strings.TrimSpace(strings.ReplaceAll(report, "[BENIGN_CHANGE]", ""))
 
 	finalStatus := "reported"
-	if cfg.AutoSelfHeal {
+	if autoStrike && !isBenign {
 		finalStatus = "healed"
 	}
 	updates := map[string]any{
@@ -665,9 +708,13 @@ func (ao *AIOpsClass) investigateSecurityAnomaly(item detectedSecurityAnomaly) {
 		return
 	}
 
-	pushBody := fmt.Sprintf("🚨 AI 安全哨兵警报 [%s]\n%s\n\n%s", srv.Name, item.summary, report)
+	header := fmt.Sprintf("🚨 AI 安全哨兵警报 [%s]", srv.Name)
+	if autoStrike {
+		header = fmt.Sprintf("⚡ AI 安全哨兵【已先斩后奏反制】[%s]", srv.Name)
+	}
+	pushBody := fmt.Sprintf("%s\n%s\n\n%s", header, item.summary, report)
 	if len([]rune(pushBody)) > 1200 {
-		pushBody = string([]rune(pushBody)[:1200]) + "\n...(完整取证报告与一键处置按钮请登录面板 AI 运维助手查看)"
+		pushBody = string([]rune(pushBody)[:1200]) + "\n...(完整战报与一键解禁按钮请登录面板 AI 运维助手查看)"
 	}
 	ao.pushDiagnosisAlert(cfg, srv, pushBody)
 }

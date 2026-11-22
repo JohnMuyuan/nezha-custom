@@ -78,11 +78,13 @@ func defaultAIOpsConfig() model.AIOpsConfig {
 		CooldownMin:          60,
 		AutoSelfHeal:         false,
 		TelegramEndpoint:     "https://api.telegram.org",
-		SecurityBootstrapped: true,
-		SecurityEnabled:      true,
-		SecurityIntervalMin:  5,
-		OutboundSpikeMbps:    50,
-		ConnSpikeThreshold:   1200,
+		SecurityBootstrapped:     true,
+		SecurityAutoBootstrapped: true,
+		SecurityEnabled:          true,
+		SecurityAutoRespond:      true,
+		SecurityIntervalMin:      2,
+		OutboundSpikeMbps:        50,
+		ConnSpikeThreshold:       1200,
 	}
 }
 
@@ -146,14 +148,22 @@ func (ao *AIOpsClass) loadConfigFromDB() {
 	}
 	if !row.SecurityBootstrapped {
 		row.SecurityEnabled = true
-		row.SecurityIntervalMin = 5
+		row.SecurityIntervalMin = 2
 		row.OutboundSpikeMbps = 50
 		row.ConnSpikeThreshold = 1200
 		row.SecurityBootstrapped = true
 		_ = DB.Save(&row).Error
 	}
-	if row.SecurityIntervalMin < 2 {
-		row.SecurityIntervalMin = 5
+	if !row.SecurityAutoBootstrapped {
+		row.SecurityAutoRespond = true
+		if row.SecurityIntervalMin >= 5 {
+			row.SecurityIntervalMin = 2
+		}
+		row.SecurityAutoBootstrapped = true
+		_ = DB.Save(&row).Error
+	}
+	if row.SecurityIntervalMin < 1 {
+		row.SecurityIntervalMin = 2
 	}
 	if row.OutboundSpikeMbps <= 0 {
 		row.OutboundSpikeMbps = 50
@@ -245,11 +255,13 @@ func (ao *AIOpsClass) UpdateConfig(form model.AIOpsConfigUpdateForm) (model.AIOp
 	next.TelegramAllowedChatIDs = strings.TrimSpace(form.TelegramAllowedChatIDs)
 
 	next.SecurityBootstrapped = true
+	next.SecurityAutoBootstrapped = true
 	next.SecurityEnabled = form.SecurityEnabled
-	if form.SecurityIntervalMin >= 2 && form.SecurityIntervalMin <= 1440 {
+	next.SecurityAutoRespond = form.SecurityAutoRespond
+	if form.SecurityIntervalMin >= 1 && form.SecurityIntervalMin <= 1440 {
 		next.SecurityIntervalMin = form.SecurityIntervalMin
-	} else if next.SecurityIntervalMin < 2 {
-		next.SecurityIntervalMin = 5
+	} else if next.SecurityIntervalMin < 1 {
+		next.SecurityIntervalMin = 2
 	}
 	next.TrustedSSHIPS = strings.TrimSpace(form.TrustedSSHIPS)
 	if form.OutboundSpikeMbps >= 5 && form.OutboundSpikeMbps <= 100000 {
@@ -775,8 +787,8 @@ func (ao *AIOpsClass) RunSentinelTick() {
 		}
 
 		secInterval := cfg.SecurityIntervalMin
-		if secInterval < 2 {
-			secInterval = 5
+		if secInterval < 1 {
+			secInterval = 2
 		}
 		ao.securityMu.Lock()
 		dueSweep := ao.lastSecuritySweepAt.IsZero() || now.Sub(ao.lastSecuritySweepAt) >= time.Duration(secInterval)*time.Minute-15*time.Second
