@@ -112,6 +112,7 @@ func InitDBFromPath(path string) error {
 	if err != nil {
 		return err
 	}
+	_ = DB.Exec("CREATE INDEX IF NOT EXISTS idx_transfers_server_id ON transfers(server_id)").Error
 	if backfillAPITokenUserVersion {
 		if err := DB.Exec("UPDATE api_tokens SET user_version = COALESCE((SELECT token_version FROM users WHERE users.id = api_tokens.user_id), 0)").Error; err != nil {
 			return err

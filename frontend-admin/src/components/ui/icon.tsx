@@ -9,10 +9,13 @@ type ParsedIconMarkup = {
     path: string
 }
 
-const simpleIconModules = import.meta.glob("/node_modules/simple-icons/icons/*.svg", {
-    query: "?raw",
-    import: "default",
-})
+const simpleIconModules = import.meta.glob(
+    "/node_modules/simple-icons/icons/{github,gitlab,gitea,codeberg,bitbucket,google,cloudflare,discord,telegram,slack,apple,authentik,authelia,keycloak,okta,auth0,nextcloud,tencentqq,wechat,sinaweibo,bilibili,patreon,twitch,x,facebook,line,lark,openid}.svg",
+    {
+        query: "?raw",
+        import: "default",
+    },
+)
 
 const iconLoadersBySlug = Object.fromEntries(
     Object.entries(simpleIconModules).map(([path, loader]) => [

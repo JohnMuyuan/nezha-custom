@@ -430,6 +430,18 @@ func fallbackToFrontend(frontendDist fs.FS) func(*gin.Context) {
 			c.Header("ETag", fmt.Sprintf(`"%x"`, etag))
 			c.Header("Cache-Control", "no-cache")
 			modified = time.Time{}
+		} else {
+			// Built-in embed.FS reports zero ModTime(), so without an explicit ETag and
+			// Cache-Control header, browsers re-download megabytes of static bundles on
+			// every visit. Content-hashed Vite assets under assets/ are immutable.
+			etag := sha256.Sum256([]byte("builtin:" + singleton.Version + "\x00" + name))
+			c.Header("ETag", fmt.Sprintf(`"%x"`, etag[:16]))
+			if strings.HasPrefix(name, "assets/") || strings.Contains(name, "/assets/") {
+				c.Header("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				c.Header("Cache-Control", "no-cache")
+			}
+			modified = time.Time{}
 		}
 		var writer http.ResponseWriter = c.Writer
 		// Only override the status for SPA error pages. Rewriting a real asset's

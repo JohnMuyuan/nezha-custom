@@ -115,6 +115,7 @@ func updateServer(c *gin.Context) (any, error) {
 	if saved.RowsAffected == 0 || !singleton.ServerShared.Replace(&s) {
 		return nil, singleton.Localizer.ErrorT("server id %d does not exist", id)
 	}
+	singleton.InvalidateAutoCycleTrafficCache()
 
 	return nil, nil
 }

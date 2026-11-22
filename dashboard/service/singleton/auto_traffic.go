@@ -16,7 +16,7 @@ import (
 
 const (
 	autoCycleIDBase   uint64 = 1_000_000
-	autoCycleCacheTTL        = 45 * time.Second
+	autoCycleCacheTTL        = 30 * time.Minute
 )
 
 var (

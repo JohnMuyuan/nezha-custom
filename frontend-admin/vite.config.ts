@@ -41,10 +41,11 @@ export default defineConfig({
         rollupOptions: {
             output: {
                 manualChunks(id: string) {
-                    if (!id.includes("node_modules")) return
+                    const normalized = id.replace(/\\/g, "/")
+                    if (!normalized.includes("/node_modules/")) return
 
-                    // 提取顶级包名，兼容 scoped packages（如 @radix-ui/react-dialog）
-                    const match = id.match(/node_modules\/(@[^/]+\/[^/]+|[^/]+)/)
+                    // 提取顶级包名，兼容 Windows 反斜杠路径与 scoped packages（如 @radix-ui/react-dialog）
+                    const match = normalized.match(/\/node_modules\/(@[^/]+\/[^/]+|[^/]+)/)
                     const pkg = match ? match[1] : null
                     if (!pkg) return "vendor"
 
@@ -113,6 +114,9 @@ export default defineConfig({
                         "draft-js",
                         "monaco-editor",
                         "@monaco-editor/react",
+                        "@xterm/xterm",
+                        "@xterm/addon-fit",
+                        "framer-motion",
                     ]
                     if (largeLibs.includes(pkg)) {
                         return `lib-${pkg.replace(/@/g, "").replace(/\//g, "-")}`

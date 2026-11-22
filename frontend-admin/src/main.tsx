@@ -1,4 +1,5 @@
 // NOTE: Do not modify the import order unless absolutely necessary.
+import { Suspense, lazy } from "react"
 import { createRoot } from "react-dom/client"
 import { RouterProvider, createBrowserRouter } from "react-router-dom"
 
@@ -17,7 +18,6 @@ import CronPage from "./routes/cron"
 import LoginPage from "./routes/login"
 import ServerPage from "./routes/server"
 import ServicePage from "./routes/service"
-import { TerminalPage } from "./components/terminal"
 import DDNSPage from "./routes/ddns"
 import NATPage from "./routes/nat"
 import NotificationGroupPage from "./routes/notification-group"
@@ -32,10 +32,14 @@ import UserPage from "./routes/user"
 import WAFPage from "./routes/waf"
 import ApiTokensPage from "./routes/api-tokens"
 import FrontendsPage from "./routes/frontends"
-import ThemeCustomPage from "./routes/theme-custom"
-import AIOpsPage from "./routes/ai-ops"
 import MCPOAuthAuthorizePage from "./routes/mcp-oauth-authorize"
 import MCPOAuthManagementPage from "./routes/mcp-oauth-management"
+
+const TerminalPage = lazy(() =>
+    import("./components/terminal").then((m) => ({ default: m.TerminalPage })),
+)
+const ThemeCustomPage = lazy(() => import("./routes/theme-custom"))
+const AIOpsPage = lazy(() => import("./routes/ai-ops"))
 
 const router = createBrowserRouter([
     {
@@ -118,7 +122,11 @@ const router = createBrowserRouter([
             },
             {
                 path: "/dashboard/terminal/:id",
-                element: <TerminalPage />,
+                element: (
+                    <Suspense fallback={<div className="p-6 text-xs text-muted-foreground">正在加载终端...</div>}>
+                        <TerminalPage />
+                    </Suspense>
+                ),
             },
             {
                 path: "/dashboard/notification",
@@ -148,7 +156,9 @@ const router = createBrowserRouter([
                 path: "/dashboard/settings/theme-custom",
                 element: (
                     <NotificationProvider withNotifierGroup>
-                        <ThemeCustomPage />
+                        <Suspense fallback={<div className="p-6 text-xs text-muted-foreground">正在加载主题工坊...</div>}>
+                            <ThemeCustomPage />
+                        </Suspense>
                     </NotificationProvider>
                 ),
             },
@@ -184,7 +194,9 @@ const router = createBrowserRouter([
                 path: "/dashboard/ai-ops",
                 element: (
                     <NotificationProvider withNotifierGroup>
-                        <AIOpsPage />
+                        <Suspense fallback={<div className="p-6 text-xs text-muted-foreground">正在加载 AI 运维助手...</div>}>
+                            <AIOpsPage />
+                        </Suspense>
                     </NotificationProvider>
                 ),
             },

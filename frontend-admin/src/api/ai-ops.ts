@@ -90,7 +90,7 @@ export interface AIOpsIncident {
     server_name: string
     trigger_type: string
     trigger_summary: string
-    status: "triaging" | "dismissed_by_small" | "diagnosing" | "reported" | "error"
+    status: "triaging" | "dismissed_by_small" | "diagnosing" | "reported" | "healed" | "error"
     severity: "low" | "medium" | "high"
     small_verdict: string
     large_report: string

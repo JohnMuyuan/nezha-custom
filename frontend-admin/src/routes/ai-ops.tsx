@@ -266,7 +266,7 @@ export default function AIOpsPage() {
                 const busy = (latest || []).some(
                     (inc) => inc.status === "triaging" || inc.status === "diagnosing",
                 )
-                return busy ? 2500 : 8000
+                return busy ? 2500 : 15000
             },
         },
     )
@@ -488,6 +488,29 @@ export default function AIOpsPage() {
             toast.error("启动巡检失败", {
                 description: err?.message,
             })
+        }
+    }
+
+    const handleApplyIncidentFix = async (inc: AIOpsIncident) => {
+        if (submittingChat) return
+        setSubmittingChat(true)
+        try {
+            const fixPrompt = `请针对服务器「${inc.server_name}」(server_id=${inc.server_id}) 刚刚生成的以下只读诊断报告，直接通过 Agent 上机帮我稳妥地执行清理与修复操作（例如清理过期缓存/日志、配置 journald 容量上限等安全项；如果涉及第三方业务或探针进程是否停用，请优先清理其膨胀缓存文件而不擅自卸载用户软件），全部做完后检查 df -h / free -m 与服务状态并向我汇报结果：\n\n${inc.large_report}`
+            const res = await postAIOpsChat({
+                session_id: 0,
+                prompt: fixPrompt,
+            })
+            setSelectedSessionId(res.session_id)
+            setActiveTab("chat")
+            await mutateSessions()
+            await mutateSessionDetail()
+            toast.success(`已派发给高级模型，正在上机处理「${inc.server_name}」！`)
+        } catch (err: any) {
+            toast.error("派发修复任务失败", {
+                description: err?.message || "请检查模型配置",
+            })
+        } finally {
+            setSubmittingChat(false)
         }
     }
 
@@ -838,10 +861,18 @@ export default function AIOpsPage() {
                                                     ⚠️ 模型调用出错
                                                 </span>
                                             )
+                                        case "healed":
+                                            return (
+                                                <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                                                    🛠️ 已出诊断并自动修复
+                                                </span>
+                                            )
                                         default:
                                             return (
                                                 <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                                                    📋 已生成巡检 / 诊断报告
+                                                    {inc.server_id > 0
+                                                        ? "📋 只读诊断完成（尚未修改服务器）"
+                                                        : "📋 全群健康巡检简报"}
                                                 </span>
                                             )
                                     }
@@ -862,9 +893,27 @@ export default function AIOpsPage() {
                                                     触发原因：{inc.trigger_summary}
                                                 </span>
                                             </div>
-                                            <span className="text-[11px] text-muted-foreground">
-                                                {new Date(inc.created_at).toLocaleString()}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                {inc.server_id > 0 &&
+                                                    inc.status === "reported" &&
+                                                    Boolean(inc.large_report) && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            disabled={submittingChat}
+                                                            onClick={() =>
+                                                                handleApplyIncidentFix(inc)
+                                                            }
+                                                            className="h-7 gap-1.5 text-xs"
+                                                        >
+                                                            <Sparkles className="h-3.5 w-3.5" />
+                                                            一键让 AI 按此建议去处理
+                                                        </Button>
+                                                    )}
+                                                <span className="text-[11px] text-muted-foreground">
+                                                    {new Date(inc.created_at).toLocaleString()}
+                                                </span>
+                                            </div>
                                         </div>
 
                                         {inc.small_verdict && (

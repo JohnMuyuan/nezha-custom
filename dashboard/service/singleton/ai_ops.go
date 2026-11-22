@@ -794,8 +794,12 @@ func (ao *AIOpsClass) investigateServerAnomaly(srv *model.Server, triggerType, t
 		return
 	}
 
+	finalStatus := "reported"
+	if cfg.AutoSelfHeal {
+		finalStatus = "healed"
+	}
 	_ = DB.Model(&incident).Updates(map[string]any{
-		"status":          "reported",
+		"status":          finalStatus,
 		"large_report":    report,
 		"tool_steps_json": string(stepsBytes),
 	}).Error
