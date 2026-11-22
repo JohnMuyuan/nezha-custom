@@ -772,17 +772,45 @@ export const ServerCard: React.FC<ServerCardProps> = ({ data, mutate }) => {
                                                 </div>
                                             </div>
 
+                                            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+                                                💡 <strong>省心提示</strong>：填好下方「开始/结束时间、金额、流量配额」后，前台会自动计算剩余价值、续费日历并<strong>自动按月统计周期流量进度条</strong>，无需再去「警报规则」配置流量规则！
+                                            </div>
                                             <div className="rounded-md border p-3 space-y-3">
                                                 <div className="text-sm font-medium opacity-80">
                                                     {t("PublicNote.Plan")}
                                                 </div>
                                                 <div className="grid gap-3 sm:grid-cols-2">
                                                     <div className="space-y-1">
-                                                        <Label className="text-xs">
-                                                            {t("PublicNote.Bandwidth")}
-                                                        </Label>
+                                                        <div className="flex flex-wrap items-center justify-between gap-1">
+                                                            <Label className="text-xs">
+                                                                {t("PublicNote.Bandwidth")}
+                                                            </Label>
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {[
+                                                                    "100Mbps",
+                                                                    "500Mbps",
+                                                                    "1Gbps",
+                                                                    "2.5Gbps",
+                                                                    "10Gbps",
+                                                                ].map((bw) => (
+                                                                    <button
+                                                                        key={bw}
+                                                                        type="button"
+                                                                        className="rounded border bg-muted/60 px-1.5 py-0.5 text-[10px] hover:bg-muted"
+                                                                        onClick={() =>
+                                                                            patchPublicNote(
+                                                                                "planDataMod.bandwidth",
+                                                                                bw,
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        {bw}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
                                                         <Input
-                                                            placeholder="30Mbps"
+                                                            placeholder="例如：1Gbps"
                                                             value={
                                                                 publicNoteObj.planDataMod?.bandwidth
                                                             }
@@ -795,11 +823,51 @@ export const ServerCard: React.FC<ServerCardProps> = ({ data, mutate }) => {
                                                         />
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <Label className="text-xs">
-                                                            {t("PublicNote.TrafficVolume")}
-                                                        </Label>
+                                                        <div className="flex flex-wrap items-center justify-between gap-1">
+                                                            <Label className="text-xs">
+                                                                {t("PublicNote.TrafficVolume")}
+                                                            </Label>
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {[
+                                                                    {
+                                                                        label: "500G",
+                                                                        val: "500GB/Month",
+                                                                    },
+                                                                    {
+                                                                        label: "1T",
+                                                                        val: "1TB/Month",
+                                                                    },
+                                                                    {
+                                                                        label: "2T",
+                                                                        val: "2TB/Month",
+                                                                    },
+                                                                    {
+                                                                        label: "5T",
+                                                                        val: "5TB/Month",
+                                                                    },
+                                                                    {
+                                                                        label: "无限",
+                                                                        val: "无限流量",
+                                                                    },
+                                                                ].map((q) => (
+                                                                    <button
+                                                                        key={q.label}
+                                                                        type="button"
+                                                                        className="rounded border bg-muted/60 px-1.5 py-0.5 text-[10px] hover:bg-muted"
+                                                                        onClick={() =>
+                                                                            patchPublicNote(
+                                                                                "planDataMod.trafficVol",
+                                                                                q.val,
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        {q.label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
                                                         <Input
-                                                            placeholder="1TB/Month"
+                                                            placeholder="例如：1TB/Month 或 无限流量"
                                                             value={
                                                                 publicNoteObj.planDataMod
                                                                     ?.trafficVol

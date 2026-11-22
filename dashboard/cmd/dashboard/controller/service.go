@@ -32,6 +32,7 @@ func showService(c *gin.Context) (*model.ServiceResponse, error) {
 		stats := filterServiceStatsForViewer(c, singleton.ServiceSentinelShared.CopyStats())
 		var cycleTransferStats map[uint64]model.CycleTransferStats
 		copier.Copy(&cycleTransferStats, singleton.AlertsCycleTransferStatsStore)
+		cycleTransferStats = singleton.MergeAutoCycleTransferStats(cycleTransferStats)
 		return []any{
 			stats, filterCycleTransferStatsForViewer(c, cycleTransferStats),
 		}, nil

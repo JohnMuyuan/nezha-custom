@@ -31,6 +31,7 @@ type ThemeAppearanceConfig struct {
 
 type ThemeTrafficBarConfig struct {
 	Enabled            bool `koanf:"enabled" json:"enabled"`
+	AutoRecord         bool `koanf:"auto_record" json:"auto_record"`
 	InsertAfter        bool `koanf:"insert_after" json:"insert_after"`
 	IntervalMs         int  `koanf:"interval_ms" json:"interval_ms"`
 	ToggleIntervalMs   int  `koanf:"toggle_interval_ms" json:"toggle_interval_ms"`
@@ -170,6 +171,7 @@ func DefaultThemeConfig() *ThemeConfig {
 		},
 		TrafficBar: ThemeTrafficBarConfig{
 			Enabled:            true,
+			AutoRecord:         true,
 			InsertAfter:        true,
 			IntervalMs:         60000,
 			ToggleIntervalMs:   5000,

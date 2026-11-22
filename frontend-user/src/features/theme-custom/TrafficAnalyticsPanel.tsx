@@ -146,7 +146,7 @@ export function TrafficAnalyticsPanel({
 			const totalGB = cycle.max / 1024 ** 3;
 			const totalPB = totalGB / (1024 * 1024);
 
-			if (isPlanUnlimited || totalPB > 16000) {
+			if (isPlanUnlimited || totalPB > 16000 || cycle.max <= 0) {
 				unlimUsed += usedGB;
 				unlimSrvs.push({
 					id: srv.id,

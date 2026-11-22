@@ -739,6 +739,15 @@ export default function ThemeCustomPage() {
                                     updateSection("traffic_bar", { enabled: checked })
                                 }
                             />
+                            <SwitchRow
+                                id={fieldId("tb_auto_record")}
+                                label="全自动记录周期流量（免配警报规则）"
+                                description="自动保留所有小鸡每小时流量并读取『公开备注』配额与账单日，无需去警报规则逐台建规则"
+                                checked={themeConfig.traffic_bar.auto_record}
+                                onCheckedChange={(checked) =>
+                                    updateSection("traffic_bar", { auto_record: checked })
+                                }
+                            />
                             {themeConfig.traffic_bar.enabled && (
                                 <>
                                     <SwitchRow

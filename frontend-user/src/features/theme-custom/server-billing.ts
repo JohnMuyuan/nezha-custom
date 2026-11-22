@@ -325,22 +325,26 @@ export function extractCycleTrafficMap(
 				serverName &&
 				transfer !== undefined &&
 				typeof max === "number" &&
-				max > 0 &&
+				max >= 0 &&
 				typeof from === "string" &&
 				typeof to === "string"
 			) {
 				const numId = Number(serverIdStr);
 				if (Number.isFinite(numId)) {
-					map.set(numId, {
-						cycleId,
-						cycleName: cycle.name || "",
-						serverId: serverIdStr,
-						serverName,
-						transfer,
-						max,
-						from,
-						to,
-					});
+					const prev = map.get(numId);
+					// Prefer explicit quota (max > 0) over unlimited fallback (max === 0)
+					if (!prev || (prev.max === 0 && max > 0)) {
+						map.set(numId, {
+							cycleId,
+							cycleName: cycle.name || "",
+							serverId: serverIdStr,
+							serverName,
+							transfer,
+							max,
+							from,
+							to,
+						});
+					}
 				}
 			}
 		}

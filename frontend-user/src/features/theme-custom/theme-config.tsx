@@ -32,6 +32,7 @@ export interface ThemeAppearanceConfig {
 
 export interface ThemeTrafficBarConfig {
 	enabled: boolean;
+	auto_record: boolean;
 	insert_after: boolean;
 	interval_ms: number;
 	toggle_interval_ms: number;
@@ -178,6 +179,7 @@ export const DEFAULT_THEME_CONFIG: ThemeConfig = {
 	},
 	traffic_bar: {
 		enabled: true,
+		auto_record: true,
 		insert_after: true,
 		interval_ms: 60000,
 		toggle_interval_ms: 5000,

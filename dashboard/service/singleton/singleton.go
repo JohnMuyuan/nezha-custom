@@ -196,6 +196,7 @@ func RecordTransferHourlyUsage(servers ...*model.Server) {
 		return
 	}
 	log.Printf("NEZHA>> Saved traffic metrics to database. Affected %d row(s), Error: %v", len(txs), DB.Create(txs).Error)
+	InvalidateAutoCycleTrafficCache()
 }
 
 func PersistTransfer(transfer model.Transfer) error {
@@ -225,6 +226,12 @@ func CleanMonitorHistory() {
 	DB.Unscoped().Delete(&model.Transfer{}, "server_id NOT IN (SELECT `id` FROM servers)")
 	// 计算可清理流量记录的时长
 	var allServerKeep time.Time
+	if Conf != nil {
+		snap := Conf.SettingsSnapshot()
+		if snap.ThemeConfig != nil && snap.ThemeConfig.TrafficBar.AutoRecord {
+			allServerKeep = time.Now().AddDate(0, 0, -400).UTC()
+		}
+	}
 	specialServerKeep := make(map[uint64]time.Time)
 	var specialServerIDs []uint64
 	var alerts []model.AlertRule

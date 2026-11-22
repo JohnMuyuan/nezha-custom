@@ -155,6 +155,10 @@ export default function AlertRulePage() {
                 </HeaderButtonGroup>
             </div>
 
+            <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3.5 py-2.5 text-xs leading-relaxed text-emerald-800 dark:text-emerald-300">
+                💡 <strong>小白省心提示</strong>：系统已默认开启<strong>「全自动周期流量记录」</strong>！如果你只是想在前台显示每台小鸡的月流量进度条，直接在<strong>「服务器管理 → 编辑 → 公开备注 → 流量配额」</strong>填写（如 <code>1TB/Month</code>）即可自动统计并展示，以后新买小鸡<strong>再也不需要来这里手动建 <code>transfer_all_cycle</code> 警报规则</strong>啦（这里仅用于确实需要发超额告警消息或离线通知的场景）。
+            </div>
+
             <Table>
                 <TableHeader>
                     {table.getHeaderGroups().map((headerGroup) => (

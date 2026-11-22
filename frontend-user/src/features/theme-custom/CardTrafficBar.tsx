@@ -192,12 +192,13 @@ export const CardTrafficBar = memo(function CardTrafficBar({
 
 	if (!traffic_bar.enabled || !serverStat) return null;
 
+	const isUnlimited = serverStat.max <= 0;
 	const used = formatFileSizeParts(serverStat.transfer);
 	const total = formatFileSizeParts(serverStat.max);
 	const pctNum =
 		serverStat.max > 0
 			? Math.min(100, (serverStat.transfer / serverStat.max) * 100)
-			: 0;
+			: 100;
 	const pctText =
 		serverStat.max > 0
 			? ((serverStat.transfer / serverStat.max) * 100).toFixed(2)
@@ -205,7 +206,9 @@ export const CardTrafficBar = memo(function CardTrafficBar({
 	const fromStr = formatShortDate(serverStat.from);
 	const toStr = formatShortDate(serverStat.to);
 	const remainDays = calculateRemainingDaysUntil(serverStat.to);
-	const barColor = getTrafficGradientColor(pctNum);
+	const barColor = isUnlimited
+		? "hsl(204, 86%, 53%)"
+		: getTrafficGradientColor(pctNum);
 	const halfDuration = Math.max(
 		50,
 		Math.floor((traffic_bar.duration_ms || 500) / 2),
@@ -217,9 +220,15 @@ export const CardTrafficBar = memo(function CardTrafficBar({
 			<span className="text-neutral-500 dark:text-neutral-400"> - </span>
 			{toStr}
 		</span>,
-		<span key="pct" className="text-neutral-800 dark:text-neutral-200">
-			使用占比: {pctText}%
-		</span>,
+		isUnlimited ? (
+			<span key="pct" className="text-sky-600 dark:text-sky-400">
+				自动记录 · 不限配额
+			</span>
+		) : (
+			<span key="pct" className="text-neutral-800 dark:text-neutral-200">
+				使用占比: {pctText}%
+			</span>
+		),
 		<span key="reset" className="text-neutral-800 dark:text-neutral-200">
 			流量重置日: {toStr}
 		</span>,
@@ -236,8 +245,7 @@ export const CardTrafficBar = memo(function CardTrafficBar({
 						{used.value} {used.unit}
 					</span>
 					<span className="text-neutral-500 dark:text-neutral-400">
-						{" / "}
-						{total.value} {total.unit}
+						{isUnlimited ? " / 不限流量" : ` / ${total.value} ${total.unit}`}
 					</span>
 				</div>
 				<div
@@ -254,8 +262,9 @@ export const CardTrafficBar = memo(function CardTrafficBar({
 				<div
 					className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
 					style={{
-						width: `${pctNum.toFixed(2)}%`,
+						width: isUnlimited ? "100%" : `${pctNum.toFixed(2)}%`,
 						backgroundColor: barColor,
+						opacity: isUnlimited ? 0.35 : 1,
 					}}
 				/>
 			</div>
