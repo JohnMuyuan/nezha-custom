@@ -102,11 +102,20 @@ export interface AIOpsIncident {
     server_name: string
     trigger_type: string
     trigger_summary: string
-    status: "triaging" | "dismissed_by_small" | "diagnosing" | "reported" | "healed" | "error"
+    status:
+        | "triaging"
+        | "dismissed_by_small"
+        | "diagnosing"
+        | "reported"
+        | "healed"
+        | "refused"
+        | "error"
     severity: "low" | "medium" | "high"
     small_verdict: string
     large_report: string
     tool_steps_json: string
+    ssh_key_diff?: string
+    can_restore_ssh_keys?: boolean
 }
 
 export interface LLMProviderPreset {
@@ -226,6 +235,13 @@ export function triggerAIOpsPatrolNow() {
 
 export function clearAIOpsIncidents() {
     return fetcher<{ cleared: boolean }>(FetcherMethod.DELETE, "/api/v1/ai-ops/incidents")
+}
+
+export function restoreServerSSHKeys(serverId: number) {
+    return fetcher<{ restored: boolean; message: string }>(
+        FetcherMethod.POST,
+        `/api/v1/ai-ops/servers/${serverId}/restore-ssh-keys`,
+    )
 }
 
 export function parseToolSteps(raw?: string): AIOpsToolStep[] {

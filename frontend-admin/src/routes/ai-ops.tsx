@@ -12,6 +12,7 @@ import {
     deleteAIOpsSession,
     parseToolSteps,
     postAIOpsChat,
+    restoreServerSSHKeys,
     testAIOpsModel,
     triggerAIOpsPatrolNow,
     updateAIOpsConfig,
@@ -37,6 +38,7 @@ import {
     Bot,
     CheckCircle2,
     ChevronDown,
+    KeyRound,
     Loader2,
     MessageSquarePlus,
     Play,
@@ -50,7 +52,7 @@ import {
     Trash2,
     Zap,
 } from "lucide-react"
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useEffect, useId, useMemo, useRef, useState } from "react"
 import { Navigate } from "react-router-dom"
 import { toast } from "sonner"
 import useSWR from "swr"
@@ -415,6 +417,10 @@ export default function AIOpsPage() {
     })
     const [savingCfg, setSavingCfg] = useState(false)
     const [testingTier, setTestingTier] = useState<"small" | "large" | null>(null)
+    const [restoringSSHServerId, setRestoringSSHServerId] = useState<number | null>(null)
+    const [pendingRestoreSSHInc, setPendingRestoreSSHInc] = useState<AIOpsIncident | null>(null)
+    const restoreSSHDialogRef = useRef<HTMLDialogElement>(null)
+    const restoreSSHTitleId = useId()
     const hydratedCfgRef = useRef(false)
     const autoSelectedSessionRef = useRef(false)
 
@@ -692,6 +698,35 @@ export default function AIOpsPage() {
             })
         } finally {
             setSubmittingChat(false)
+        }
+    }
+
+    const executeRestoreSSHKeys = async (inc: AIOpsIncident) => {
+        setRestoringSSHServerId(inc.server_id)
+        try {
+            const res = await restoreServerSSHKeys(inc.server_id)
+            toast.success("SSH 公钥已成功还原！", {
+                description: res?.message,
+            })
+            await mutateIncidents()
+        } catch (err: any) {
+            toast.error("恢复 SSH 公钥失败", {
+                description: err?.message || "请检查服务器在线状态或快照是否存在",
+            })
+        } finally {
+            setRestoringSSHServerId(null)
+        }
+    }
+
+    const handleRestoreSSHDialogClose = () => {
+        const dlg = restoreSSHDialogRef.current
+        if (!dlg) return
+        const choice = dlg.returnValue
+        dlg.returnValue = ""
+        const target = pendingRestoreSSHInc
+        setPendingRestoreSSHInc(null)
+        if (choice === "confirm" && target) {
+            void executeRestoreSSHKeys(target)
         }
     }
 
@@ -1075,11 +1110,17 @@ export default function AIOpsPage() {
                                                     ⚠️ 模型调用出错
                                                 </span>
                                             )
+                                        case "refused":
+                                            return (
+                                                <span className="rounded-full bg-destructive/15 px-2.5 py-0.5 text-[11px] font-semibold text-destructive">
+                                                    ⚠️ 模型拒答未执行（请人工核查）
+                                                </span>
+                                            )
                                         case "healed":
                                             return (
                                                 <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                                                     {isSecurityEvent
-                                                        ? "⚡ 已先斩后奏反制止损"
+                                                        ? "⚡ 已自动反制止损"
                                                         : "🛠️ 已出诊断并自动处置"}
                                                 </span>
                                             )
@@ -1136,9 +1177,32 @@ export default function AIOpsPage() {
                                                     触发原因：{inc.trigger_summary}
                                                 </span>
                                             </div>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {inc.server_id > 0 && inc.can_restore_ssh_keys && (
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="destructive"
+                                                        disabled={
+                                                            restoringSSHServerId === inc.server_id
+                                                        }
+                                                        onClick={() => {
+                                                            setPendingRestoreSSHInc(inc)
+                                                            restoreSSHDialogRef.current?.showModal()
+                                                        }}
+                                                        className="h-7 gap-1.5 text-xs"
+                                                    >
+                                                        {restoringSSHServerId === inc.server_id ? (
+                                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                        ) : (
+                                                            <KeyRound className="h-3.5 w-3.5" />
+                                                        )}
+                                                        一键恢复上一版 SSH 公钥
+                                                    </Button>
+                                                )}
                                                 {inc.server_id > 0 &&
-                                                    inc.status === "reported" &&
+                                                    (inc.status === "reported" ||
+                                                        inc.status === "refused") &&
                                                     !isVerifiedBenign &&
                                                     Boolean(inc.large_report) && (
                                                         <Button
@@ -1882,6 +1946,32 @@ export default function AIOpsPage() {
                     </form>
                 </TabsContent>
             </Tabs>
+
+            <dialog
+                ref={restoreSSHDialogRef}
+                aria-labelledby={restoreSSHTitleId}
+                onClose={handleRestoreSSHDialogClose}
+                className="m-auto w-[min(92vw,440px)] rounded-xl border bg-card p-5 text-card-foreground shadow-xl backdrop:bg-black/55 backdrop:backdrop-blur-xs"
+            >
+                <h2 id={restoreSSHTitleId} className="text-base font-bold">
+                    确认一键恢复上一版 SSH 公钥？
+                </h2>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    将直接通过探针 Agent 把服务器{" "}
+                    <strong>{pendingRestoreSSHInc?.server_name}</strong> 的{" "}
+                    <code>/root/.ssh/authorized_keys</code>{" "}
+                    精确还原为本次变动前留档的黄金快照（不依赖大模型，且当前文件会先备份为{" "}
+                    <code>authorized_keys.bak-*</code>）。
+                </p>
+                <form method="dialog" className="mt-4 flex justify-end gap-2">
+                    <Button type="submit" value="cancel" variant="outline" size="sm" autoFocus>
+                        取消
+                    </Button>
+                    <Button type="submit" value="confirm" variant="destructive" size="sm">
+                        确认立即恢复公钥
+                    </Button>
+                </form>
+            </dialog>
         </div>
     )
 }

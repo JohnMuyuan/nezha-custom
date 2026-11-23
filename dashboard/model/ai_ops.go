@@ -201,18 +201,33 @@ type AIOpsToolStep struct {
 // AIOpsIncident records an anomaly detected by the sentinel or manual patrol,
 // along with Small Model triage verdict and Large Model deep investigation.
 type AIOpsIncident struct {
-	ID             uint64    `gorm:"primaryKey" json:"id"`
-	CreatedAt      time.Time `gorm:"index" json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	ServerID       uint64    `gorm:"index" json:"server_id"`
-	ServerName     string    `json:"server_name"`
-	TriggerType    string    `json:"trigger_type"`    // cpu | memory | disk | offline | manual_patrol
-	TriggerSummary string    `json:"trigger_summary"` // e.g. "CPU 95.2% / Load1 6.4"
-	Status         string    `json:"status"`          // triaging | dismissed_by_small | diagnosing | reported | error
-	Severity       string    `json:"severity"`        // low | medium | high
-	SmallVerdict   string    `gorm:"type:text" json:"small_verdict"`
-	LargeReport    string    `gorm:"type:text" json:"large_report"`
-	ToolStepsJSON  string    `gorm:"type:text" json:"tool_steps_json"`
+	ID                uint64    `gorm:"primaryKey" json:"id"`
+	CreatedAt         time.Time `gorm:"index" json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	ServerID          uint64    `gorm:"index" json:"server_id"`
+	ServerName        string    `json:"server_name"`
+	TriggerType       string    `json:"trigger_type"`    // cpu | memory | disk | offline | manual_patrol | security_*
+	TriggerSummary    string    `json:"trigger_summary"` // e.g. "CPU 95.2% / Load1 6.4"
+	Status            string    `json:"status"`          // triaging | dismissed_by_small | diagnosing | reported | healed | refused | error
+	Severity          string    `json:"severity"`        // low | medium | high
+	SmallVerdict      string    `gorm:"type:text" json:"small_verdict"`
+	LargeReport       string    `gorm:"type:text" json:"large_report"`
+	ToolStepsJSON     string    `gorm:"type:text" json:"tool_steps_json"`
+	SSHKeyDiff        string    `gorm:"type:text" json:"ssh_key_diff,omitempty"`
+	CanRestoreSSHKeys bool      `json:"can_restore_ssh_keys"`
+}
+
+// AIOpsSSHKeySnapshot persists the last two observed versions of /root/.ssh/authorized_keys
+// per server so the dashboard can compute exact key add/remove diffs and offer deterministic
+// 1-click restoration even if an attacker deletes all SSH keys or an LLM refuses to act.
+type AIOpsSSHKeySnapshot struct {
+	ServerID        uint64    `gorm:"primaryKey;autoIncrement:false" json:"server_id"`
+	ServerName      string    `json:"server_name"`
+	PreviousContent string    `gorm:"type:text" json:"-"`
+	CurrentContent  string    `gorm:"type:text" json:"-"`
+	CurrentHash     string    `gorm:"type:varchar(64)" json:"current_hash"`
+	LastDiffSummary string    `gorm:"type:text" json:"last_diff_summary"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // AIOpsChatSession represents an interactive ops conversation (Web UI or Telegram).

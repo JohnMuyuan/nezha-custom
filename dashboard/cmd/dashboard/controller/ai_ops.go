@@ -179,3 +179,19 @@ func clearAIOpsIncidents(c *gin.Context) (any, error) {
 	}
 	return gin.H{"cleared": true}, nil
 }
+
+// POST /api/v1/ai-ops/servers/:id/restore-ssh-keys
+func restoreServerSSHKeys(c *gin.Context) (any, error) {
+	if singleton.AIOpsShared == nil {
+		return nil, errors.New("AI Ops 服务尚未初始化")
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		return nil, errors.New("无效的服务器 ID")
+	}
+	msg, err := singleton.AIOpsShared.RestorePreviousSSHKeys(c.Request.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{"restored": true, "message": msg}, nil
+}

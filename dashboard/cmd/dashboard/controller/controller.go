@@ -238,6 +238,7 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	aiOpsGroup.GET("/incidents", adminHandler(listAIOpsIncidents))
 	aiOpsGroup.POST("/patrol-now", adminHandler(triggerAIOpsPatrolNow))
 	aiOpsGroup.DELETE("/incidents", adminHandler(clearAIOpsIncidents))
+	aiOpsGroup.POST("/servers/:id/restore-ssh-keys", adminHandler(restoreServerSSHKeys))
 
 	backupGroup := auth.Group("/backup", patForbidden, restScopeMiddleware(model.ScopeAdminAll))
 	backupGroup.GET("/config", adminHandler(getBackupConfig))

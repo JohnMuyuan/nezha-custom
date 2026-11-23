@@ -387,10 +387,21 @@ func buildOpsSystemPrompt(readOnly bool) string {
 5. 回复请使用简洁明了的中文 Markdown，总结你做了哪些操作、结果如何。`, nowStr)
 }
 
-// runAgentReActLoop executes the multi-step LLM + Agent tool loop.
+// runAgentReActLoop executes the multi-step LLM + Agent tool loop with the default ops system prompt.
 func (ao *AIOpsClass) runAgentReActLoop(
 	ctx context.Context,
 	baseURL, apiKey, modelName string,
+	history []llmChatMessage,
+	readOnly bool,
+	onStep func(steps []model.AIOpsToolStep, statusHint string),
+) (finalText string, steps []model.AIOpsToolStep, err error) {
+	return ao.runAgentReActLoopWithSystem(ctx, baseURL, apiKey, modelName, buildOpsSystemPrompt(readOnly), history, readOnly, onStep)
+}
+
+func (ao *AIOpsClass) runAgentReActLoopWithSystem(
+	ctx context.Context,
+	baseURL, apiKey, modelName string,
+	systemPrompt string,
 	history []llmChatMessage,
 	readOnly bool,
 	onStep func(steps []model.AIOpsToolStep, statusHint string),
@@ -399,7 +410,7 @@ func (ao *AIOpsClass) runAgentReActLoop(
 	messages := make([]llmChatMessage, 0, len(history)+8)
 	messages = append(messages, llmChatMessage{
 		Role:    "system",
-		Content: buildOpsSystemPrompt(readOnly),
+		Content: systemPrompt,
 	})
 	messages = append(messages, history...)
 

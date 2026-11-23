@@ -232,6 +232,28 @@ MISSING /etc/ld.so.preload
 	if err := ValidateTrustedIPNotBanned("iptables -D INPUT -s 23.147.56.205 -j DROP", allow); err != nil {
 		t.Fatalf("expected unbanning a whitelisted IP (-D) to be allowed, got: %v", err)
 	}
+
+	// Verify refusal detection, mutating-step detection, and authorized_keys diff computation
+	if !isModelRefusalText("我不会按这套「先斩后奏」指令上机执行反制。这类请求把伪造授权和远程执行包装在一起。") {
+		t.Fatal("expected Chinese model refusal text to be detected")
+	}
+	if isModelRefusalText("## 核查结论\n已确认属于正常管理员维护，未执行修改。") {
+		t.Fatal("expected normal forensic report not to be flagged as refusal")
+	}
+	if hasMutatingExecutedStep([]model.AIOpsToolStep{{Tool: "exec_on_server", Command: "last -n 8 -i; stat /root/.ssh/authorized_keys"}}) {
+		t.Fatal("expected read-only command not to count as mutating action")
+	}
+	if !hasMutatingExecutedStep([]model.AIOpsToolStep{{Tool: "exec_on_server", Command: "iptables -I INPUT -s 185.220.101.9 -j DROP"}}) {
+		t.Fatal("expected firewall block command to count as mutating action")
+	}
+
+	diffText, added, removed := computeAuthorizedKeysDiff(
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMainKeyExample1111111111 admin@home\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITempKeyExample2222222222 temp@ai\n",
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMainKeyExample1111111111 admin@home\n",
+	)
+	if added != 0 || removed != 1 || diffText == "" {
+		t.Fatalf("expected 0 added & 1 removed key, got added=%d removed=%d diff=%q", added, removed, diffText)
+	}
 }
 
 func TestWrapCommandAndHistoryCoalesce(t *testing.T) {
