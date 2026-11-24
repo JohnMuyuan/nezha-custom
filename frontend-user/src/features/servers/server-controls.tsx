@@ -6,7 +6,9 @@ import {
 	MapIcon,
 	ViewColumnsIcon,
 } from "@heroicons/react/20/solid";
+import { Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import GroupSwitch from "@/components/GroupSwitch";
 import { SORT_TYPES, type SortContextType } from "@/context/sort-context";
 import { TriNetworkPingSwitch } from "@/features/theme-custom/TriNetworkPing";
@@ -75,6 +77,23 @@ export function ServerControls({
 					>
 						<ChartBarSquareIcon className="size-[13px]" />
 					</button>
+				)}
+				{hasServices && (
+					<Link
+						to="/latency"
+						title={t("latencyMatrix.title", "全节点延迟与稳定性总览")}
+						className={cn(
+							"inset-shadow-2xs inset-shadow-white/20 inline-flex h-8 shrink-0 items-center gap-1 rounded-[50px] bg-emerald-100 px-2.5 text-xs font-semibold text-emerald-700 transition-all hover:bg-emerald-600 hover:text-white dark:bg-emerald-950/80 dark:text-emerald-300 dark:hover:bg-emerald-500 dark:hover:text-white",
+							{
+								"bg-opacity-75 dark:bg-opacity-75": customBackgroundImage,
+							},
+						)}
+					>
+						<Activity className="size-3.5 shrink-0" aria-hidden="true" />
+						<span className="hidden whitespace-nowrap sm:inline">
+							{t("latencyMatrix.navLabel", "延迟对比")}
+						</span>
+					</Link>
 				)}
 				<button
 					onClick={toggleInline}

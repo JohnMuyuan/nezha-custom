@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { ImageMinus } from "lucide-react";
+import { Activity, ImageMinus } from "lucide-react";
 import { DateTime } from "luxon";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ModeToggle } from "@/components/ThemeSwitcher";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -164,6 +164,7 @@ function Header({
 				</section>
 				<section className="flex items-center gap-2 header-handles">
 					<div className="hidden sm:flex items-center gap-2">
+						<LatencyLink />
 						<Links />
 						<DashboardLink />
 					</div>
@@ -215,7 +216,10 @@ function Header({
 				</section>
 			</section>
 			<div className="w-full flex justify-between sm:hidden mt-1">
-				<DashboardLink />
+				<div className="flex items-center gap-3">
+					<DashboardLink />
+					<LatencyLink />
+				</div>
 				<Links />
 			</div>
 			<Overview loading={brandingLoading} />
@@ -295,6 +299,28 @@ export function RefreshToast() {
 				<p className="text-[12.5px] font-medium">{t("refreshing")}...</p>
 			</section>
 		</div>
+	);
+}
+
+function LatencyLink() {
+	const { t } = useTranslation();
+	const { pathname } = useLocation();
+	const isActive = pathname === "/latency";
+
+	return (
+		<Link
+			to="/latency"
+			aria-current={isActive ? "page" : undefined}
+			className={cn(
+				"flex items-center text-nowrap gap-1 text-sm font-medium transition-opacity",
+				isActive
+					? "opacity-100 text-primary"
+					: "opacity-60 hover:opacity-100",
+			)}
+		>
+			<Activity className="h-3.5 w-3.5" aria-hidden="true" />
+			<span>{t("latencyMatrix.navLabel", "延迟对比")}</span>
+		</Link>
 	);
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Home, Moon, Sun, SunMoon } from "lucide-react";
+import { Activity, Home, Moon, Sun, SunMoon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -50,6 +50,12 @@ export function DashCommand() {
 					icon: <Home />,
 					label: t("Home"),
 					action: () => navigate("/"),
+				},
+				{
+					keywords: ["latency", "ping", "matrix", "delay", "延迟", "抖动"],
+					icon: <Activity />,
+					label: t("latencyMatrix.title", "全节点延迟与稳定性总览"),
+					action: () => navigate("/latency"),
 				},
 				{
 					keywords: ["light", "theme", "lightmode"],

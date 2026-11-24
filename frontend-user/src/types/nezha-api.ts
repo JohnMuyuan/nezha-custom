@@ -242,3 +242,61 @@ export interface OnlineHistoryResponse {
 	success: boolean;
 	data: OnlineHistoryData;
 }
+
+export type LatencyPeriod = "1h" | "6h" | "1d" | "7d";
+
+export interface LatencySparkPoint {
+	ts: number;
+	delay: number | null;
+	loss: number;
+}
+
+export interface LatencyCellStats {
+	latest_ms: number | null;
+	avg_ms: number | null;
+	min_ms: number | null;
+	max_ms: number | null;
+	p95_ms: number | null;
+	jitter_ms: number | null;
+	std_dev_ms: number | null;
+	loss_percent: number;
+	sample_count: number;
+	stability_score: number;
+	sparkline?: LatencySparkPoint[];
+}
+
+export interface LatencyOverviewMonitor {
+	id: number;
+	name: string;
+	display_index: number;
+}
+
+export interface LatencyOverviewServer {
+	id: number;
+	name: string;
+	country_code: string;
+	display_index: number;
+	online: boolean;
+	avg_ms: number | null;
+	latest_ms: number | null;
+	p95_ms: number | null;
+	jitter_ms: number | null;
+	loss_percent: number;
+	stability_score: number | null;
+	monitor_count: number;
+	cells: Record<string, LatencyCellStats>;
+}
+
+export interface LatencyOverviewData {
+	period: LatencyPeriod;
+	generated_at: number;
+	bucket_ms: number;
+	monitors: LatencyOverviewMonitor[];
+	servers: LatencyOverviewServer[];
+}
+
+export interface LatencyOverviewResponse {
+	success: boolean;
+	data: LatencyOverviewData;
+	error?: string;
+}

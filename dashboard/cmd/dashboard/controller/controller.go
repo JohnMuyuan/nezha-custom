@@ -112,6 +112,7 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 
 	optionalAuth.GET("/service", restScopeMiddleware(model.ScopeServiceRead), commonHandler(showService))
 	optionalAuth.GET("/service/server", restScopeMiddleware(model.ScopeServiceRead), commonHandler(listServerWithServices))
+	optionalAuth.GET("/service/latency-overview", restScopeMiddleware(model.ScopeServiceRead), commonHandler(getLatencyOverview))
 	optionalAuth.GET("/service/:id/history", restScopeMiddleware(model.ScopeServiceRead), commonHandler(getServiceHistory))
 	optionalAuth.GET("/server/:id/service", restScopeMiddleware(model.ScopeServiceRead), commonHandler(listServerServices))
 	optionalAuth.GET("/server/:id/metrics", restScopeMiddleware(model.ScopeServerRead), commonHandler(getServerMetrics))
@@ -505,6 +506,7 @@ func fallbackToFrontend(frontendDist fs.FS) func(*gin.Context) {
 	frontendPageUrlRegistry := []*regexp.Regexp{
 		// official user frontend
 		regexp.MustCompile(`^/$`),
+		regexp.MustCompile(`^/latency$`),
 		regexp.MustCompile(`^/server/\d*$`),
 		// backend frontend
 		regexp.MustCompile(`^/dashboard/$`),

@@ -41,6 +41,7 @@ import ErrorPage from "./pages/ErrorPage";
 import Server from "./pages/Server";
 
 const loadNotFound = () => import("./pages/NotFound");
+const loadLatencyMatrix = () => import("./pages/LatencyMatrix");
 function ServerDetail({
 	configurationLoading,
 }: {
@@ -83,7 +84,7 @@ const MainApp: React.FC = () => {
 		refetchOnWindowFocus: true,
 		retry: false,
 	});
-	const { i18n } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const { setTheme } = useTheme();
 	const customCode = settingData?.data?.config?.custom_code ?? "";
 	const rawThemeConfig = settingData?.data?.config?.theme_config;
@@ -219,6 +220,17 @@ const MainApp: React.FC = () => {
 									path="/server/:id"
 									element={
 										<ServerDetail configurationLoading={configurationLoading} />
+									}
+								/>
+								<Route
+									path="/latency"
+									element={
+										<RetryableLazy
+											load={loadLatencyMatrix}
+											componentProps={{}}
+											fallback={<ServerDetailPageLoading />}
+											title={t("latencyMatrix.title", "全节点延迟与稳定性总览")}
+										/>
 									}
 								/>
 								<Route path="/error" element={<ErrorPage />} />

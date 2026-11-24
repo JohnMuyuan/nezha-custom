@@ -670,3 +670,163 @@ func (db *TSDB) queryMetricByServerID(metric MetricType, serverID string, tr sto
 
 	return result, nil
 }
+
+// RawServicePoint 表示一次探测的原始时间、延迟与可达性状态。
+type RawServicePoint struct {
+	Timestamp int64
+	Delay     float64
+	Status    float64
+	HasDelay  bool
+	HasStatus bool
+}
+
+// QueryAllServiceRawPoints 一次性扫描时间窗口内所有服务器×探测目标的原始延迟与状态样本，
+// 仅执行两次 TSDB tag 扫描（delay + status），避免前端 N+1 请求与服务端重复检索。
+func (db *TSDB) QueryAllServiceRawPoints(since, now time.Time) (map[uint64]map[uint64][]RawServicePoint, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if db.closed {
+		return nil, fmt.Errorf("TSDB is closed")
+	}
+
+	tr := storage.TimeRange{
+		MinTimestamp: since.UnixMilli(),
+		MaxTimestamp: now.UnixMilli(),
+	}
+
+	delayData, err := db.queryAllServiceMetric(MetricServiceDelay, tr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query bulk delay data: %w", err)
+	}
+	statusData, err := db.queryAllServiceMetric(MetricServiceStatus, tr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query bulk status data: %w", err)
+	}
+
+	type pairKey struct {
+		serverID  uint64
+		serviceID uint64
+	}
+	merged := make(map[pairKey]map[int64]*RawServicePoint)
+
+	for pair, points := range delayData {
+		key := pairKey{serverID: pair[0], serviceID: pair[1]}
+		tsMap := merged[key]
+		if tsMap == nil {
+			tsMap = make(map[int64]*RawServicePoint, len(points))
+			merged[key] = tsMap
+		}
+		for _, p := range points {
+			tsMap[p.timestamp] = &RawServicePoint{
+				Timestamp: p.timestamp,
+				Delay:     p.value,
+				HasDelay:  true,
+			}
+		}
+	}
+
+	for pair, points := range statusData {
+		key := pairKey{serverID: pair[0], serviceID: pair[1]}
+		tsMap := merged[key]
+		if tsMap == nil {
+			tsMap = make(map[int64]*RawServicePoint, len(points))
+			merged[key] = tsMap
+		}
+		for _, p := range points {
+			if existing, ok := tsMap[p.timestamp]; ok {
+				existing.Status = p.value
+				existing.HasStatus = true
+			} else {
+				tsMap[p.timestamp] = &RawServicePoint{
+					Timestamp: p.timestamp,
+					Status:    p.value,
+					HasStatus: true,
+				}
+			}
+		}
+	}
+
+	result := make(map[uint64]map[uint64][]RawServicePoint)
+	for key, tsMap := range merged {
+		pts := make([]RawServicePoint, 0, len(tsMap))
+		for _, p := range tsMap {
+			pts = append(pts, *p)
+		}
+		sort.Slice(pts, func(i, j int) bool {
+			return pts[i].Timestamp < pts[j].Timestamp
+		})
+		if result[key.serverID] == nil {
+			result[key.serverID] = make(map[uint64][]RawServicePoint)
+		}
+		result[key.serverID][key.serviceID] = pts
+	}
+
+	return result, nil
+}
+
+func (db *TSDB) queryAllServiceMetric(metric MetricType, tr storage.TimeRange) (map[[2]uint64][]metricPoint, error) {
+	tfs := storage.NewTagFilters()
+	if err := tfs.Add(nil, []byte(metric), false, false); err != nil {
+		return nil, err
+	}
+
+	deadline := uint64(time.Now().Add(30 * time.Second).Unix())
+
+	var search storage.Search
+	search.Init(nil, db.storage, []*storage.TagFilters{tfs}, tr, 100000, deadline)
+	defer search.MustClose()
+
+	result := make(map[[2]uint64][]metricPoint)
+	var timestamps []int64
+	var values []float64
+
+	for search.NextMetricBlock() {
+		mbr := search.MetricBlockRef
+		var block storage.Block
+		mbr.BlockRef.MustReadBlock(&block)
+
+		mn := storage.GetMetricName()
+		if err := mn.Unmarshal(mbr.MetricName); err != nil {
+			log.Printf("NEZHA>> TSDB: failed to unmarshal metric name: %v", err)
+			storage.PutMetricName(mn)
+			continue
+		}
+
+		serverIDBytes := mn.GetTagValue("server_id")
+		serviceIDBytes := mn.GetTagValue("service_id")
+		if len(serverIDBytes) == 0 || len(serviceIDBytes) == 0 {
+			storage.PutMetricName(mn)
+			continue
+		}
+
+		serverID, err1 := strconv.ParseUint(string(serverIDBytes), 10, 64)
+		serviceID, err2 := strconv.ParseUint(string(serviceIDBytes), 10, 64)
+		storage.PutMetricName(mn)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+
+		if err := block.UnmarshalData(); err != nil {
+			log.Printf("NEZHA>> TSDB: failed to unmarshal block data: %v", err)
+			continue
+		}
+
+		timestamps = timestamps[:0]
+		values = values[:0]
+		timestamps, values = block.AppendRowsWithTimeRangeFilter(timestamps, values, tr)
+
+		pair := [2]uint64{serverID, serviceID}
+		for i := range timestamps {
+			result[pair] = append(result[pair], metricPoint{
+				timestamp: timestamps[i],
+				value:     model.FiniteStateValue(values[i]),
+			})
+		}
+	}
+
+	if err := search.Error(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}

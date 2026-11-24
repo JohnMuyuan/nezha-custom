@@ -1,5 +1,7 @@
 import { type ApiRequestOptions, requestJson } from "@/lib/http";
 import type {
+	LatencyOverviewResponse,
+	LatencyPeriod,
 	LoginUserResponse,
 	MetricPeriod,
 	MetricType,
@@ -120,6 +122,18 @@ export const fetchServerOnlineHistory = async (
 	const query = days ? `?days=${days}` : "";
 	const data = await requestJson<OnlineHistoryResponse>(
 		`/api/v1/server/${server_id}/online-history${query}`,
+		options,
+	);
+	return data;
+};
+
+export const fetchLatencyOverview = async (
+	period: LatencyPeriod = "1h",
+	options?: ApiRequestOptions,
+): Promise<LatencyOverviewResponse> => {
+	const query = `?period=${encodeURIComponent(period)}`;
+	const data = await requestJson<LatencyOverviewResponse>(
+		`/api/v1/service/latency-overview${query}`,
 		options,
 	);
 	return data;

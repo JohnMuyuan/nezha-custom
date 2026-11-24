@@ -56,6 +56,7 @@
 //	GET    /api/v1/server-group                      nezha:inventory:read
 //	GET    /api/v1/service                           nezha:service:read
 //	GET    /api/v1/service/server                    nezha:service:read
+//	GET    /api/v1/service/latency-overview          nezha:service:read
 //	GET    /api/v1/service/{id}/history              nezha:service:read
 //	GET    /api/v1/server/{id}/service               nezha:service:read
 //	GET    /api/v1/server/{id}/metrics               nezha:server:read

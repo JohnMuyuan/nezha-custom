@@ -755,3 +755,48 @@ func TestTSDB_QueriesSanitizeStoredNonFiniteSamples(t *testing.T) {
 		assert.NoError(t, err, name)
 	}
 }
+
+func TestTSDB_QueryAllServiceRawPoints(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "tsdb_bulk_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	db, err := Open(&Config{
+		DataPath:           filepath.Join(tempDir, "tsdb"),
+		RetentionDays:      1,
+		MinFreeDiskSpaceGB: 1,
+		DedupInterval:      time.Second,
+	})
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now().Truncate(time.Second)
+	require.NoError(t, db.WriteServiceMetrics(&ServiceMetrics{
+		ServiceID: 10, ServerID: 1, Timestamp: now.Add(-10 * time.Minute), Delay: 25.5, Successful: true,
+	}))
+	require.NoError(t, db.WriteServiceMetrics(&ServiceMetrics{
+		ServiceID: 10, ServerID: 1, Timestamp: now.Add(-5 * time.Minute), Delay: 27.5, Successful: true,
+	}))
+	require.NoError(t, db.WriteServiceMetrics(&ServiceMetrics{
+		ServiceID: 20, ServerID: 2, Timestamp: now.Add(-8 * time.Minute), Delay: 0, Successful: false,
+	}))
+	require.NoError(t, db.WriteServiceMetrics(&ServiceMetrics{
+		ServiceID: 20, ServerID: 2, Timestamp: now.Add(-3 * time.Minute), Delay: 140.0, Successful: true,
+	}))
+	db.Flush()
+
+	all, err := db.QueryAllServiceRawPoints(now.Add(-1*time.Hour), now)
+	require.NoError(t, err)
+	require.Contains(t, all, uint64(1))
+	require.Contains(t, all[1], uint64(10))
+	assert.Len(t, all[1][10], 2)
+	assert.InDelta(t, 25.5, all[1][10][0].Delay, 0.01)
+	assert.True(t, all[1][10][0].HasStatus)
+	assert.Equal(t, 1.0, all[1][10][0].Status)
+
+	require.Contains(t, all, uint64(2))
+	require.Contains(t, all[2], uint64(20))
+	require.Len(t, all[2][20], 2)
+	assert.Equal(t, 0.0, all[2][20][0].Status)
+	assert.InDelta(t, 140.0, all[2][20][1].Delay, 0.01)
+}
