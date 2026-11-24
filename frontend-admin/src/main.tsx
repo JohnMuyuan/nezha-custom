@@ -1,7 +1,7 @@
 // NOTE: Do not modify the import order unless absolutely necessary.
 import { Suspense, lazy } from "react"
 import { createRoot } from "react-dom/client"
-import { RouterProvider, createBrowserRouter } from "react-router-dom"
+import { Navigate, RouterProvider, createBrowserRouter } from "react-router-dom"
 
 import "./index.css"
 import "./lib/i18n"
@@ -28,7 +28,6 @@ import OnlineUserPage from "./routes/online-user"
 import ProfilePage from "./routes/profile"
 import SettingsPage from "./routes/settings"
 import TransferPage from "./routes/transfer"
-import UserPage from "./routes/user"
 import WAFPage from "./routes/waf"
 import ApiTokensPage from "./routes/api-tokens"
 import FrontendsPage from "./routes/frontends"
@@ -169,7 +168,7 @@ const router = createBrowserRouter([
             },
             {
                 path: "/dashboard/settings/user",
-                element: <UserPage />,
+                element: <Navigate to="/dashboard/settings" replace />,
             },
             {
                 path: "/dashboard/settings/waf",

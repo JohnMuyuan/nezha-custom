@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"golang.org/x/oauth2"
-	"gorm.io/gorm"
 
 	"github.com/nezhahq/nezha/model"
-	"github.com/nezhahq/nezha/pkg/utils"
 	"github.com/nezhahq/nezha/service/singleton"
 )
 
@@ -60,61 +56,7 @@ func getRedirectURL(c *gin.Context) string {
 // @Success 200 {object} model.Oauth2LoginResponse
 // @Router /api/v1/oauth2/{provider} [get]
 func oauth2redirect(c *gin.Context) (*model.Oauth2LoginResponse, error) {
-	provider := c.Param("provider")
-	if provider == "" {
-		return nil, singleton.Localizer.ErrorT("provider is required")
-	}
-
-	rTypeInt, err := strconv.ParseUint(c.Query("type"), 10, 8)
-	if err != nil {
-		return nil, err
-	}
-
-	if model.Oauth2LoginType(rTypeInt) != model.RTypeLogin && model.Oauth2LoginType(rTypeInt) != model.RTypeBind {
-		return nil, singleton.Localizer.ErrorT("invalid OAuth action")
-	}
-	var initiatingUser uint64
-	var initiatingSession string
-	if model.Oauth2LoginType(rTypeInt) == model.RTypeBind {
-		user, ok := c.Get(model.CtxKeyAuthorizedUser)
-		initiatingSession = c.GetString(jwtClaimKeyID)
-		if !ok || initiatingSession == "" {
-			return nil, singleton.Localizer.ErrorT("unauthorized")
-		}
-		initiatingUser = user.(*model.User).ID
-	}
-	o2confRaw, has := singleton.Conf.Oauth2[provider]
-	if !has {
-		return nil, singleton.Localizer.ErrorT("provider not found")
-	}
-	redirectURL := getRedirectURL(c)
-	if len(singleton.Conf.Oauth2) > 1 {
-		// OAuth mix-up defence (RFC 9700 section 4.4.2): with several providers
-		// each one gets its own redirect URI, so the path a code arrives on
-		// tells which provider issued it. A single provider keeps the shared
-		// path, so existing single-provider registrations stay valid.
-		redirectURL += "/" + url.PathEscape(provider)
-	}
-	o2conf := o2confRaw.Setup(redirectURL)
-
-	randomString, err := utils.GenerateRandomString(32)
-	if err != nil {
-		return nil, err
-	}
-	state, stateKey := randomString[:16], randomString[16:]
-	singleton.Cache.Set(fmt.Sprintf("%s%s", model.CacheKeyOauth2State, stateKey), &model.Oauth2State{
-		UserID:      initiatingUser,
-		SessionID:   initiatingSession,
-		Action:      model.Oauth2LoginType(rTypeInt),
-		Provider:    provider,
-		State:       state,
-		RedirectURL: redirectURL,
-	}, 5*time.Minute)
-
-	url := o2conf.AuthCodeURL(state, oauth2.AccessTypeOnline)
-	writeOauth2StateCookie(c, stateKey)
-
-	return &model.Oauth2LoginResponse{Redirect: url}, nil
+	return nil, fmt.Errorf("OAuth2 登录已关闭，请使用 Passkey 登录")
 }
 
 // writeOauth2StateCookie sets the nz-o2s cookie used to authenticate the
@@ -175,108 +117,7 @@ func unbindOauth2(c *gin.Context) (any, error) {
 // @Router /api/v1/oauth2/callback/{provider} [get]
 func oauth2callback(jwtConfig *jwt.GinJWTMiddleware) func(c *gin.Context) (any, error) {
 	return func(c *gin.Context) (any, error) {
-		callbackData := &model.Oauth2Callback{
-			State: c.Query("state"),
-			Code:  c.Query("code"),
-		}
-
-		state, err := verifyState(c, callbackData.State)
-		if err != nil {
-			return nil, err
-		}
-		// The state says which provider was asked, the path which one answered.
-		// A code another provider issued must not reach this one's token_url,
-		// so the shared path is not accepted either once there are several.
-		if len(singleton.Conf.Oauth2) > 1 && c.Param("provider") != state.Provider {
-			return nil, singleton.Localizer.ErrorT("invalid state key")
-		}
-
-		o2confRaw, has := singleton.Conf.Oauth2[state.Provider]
-		if !has {
-			return nil, singleton.Localizer.ErrorT("provider not found")
-		}
-
-		realip := c.GetString(model.CtxKeyRealIPStr)
-		if callbackData.Code == "" {
-			model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeBruteForceOauth2, model.BlockIDToken)
-			return nil, singleton.Localizer.ErrorT("code is required")
-		}
-
-		openId, err := exchangeOpenId(c, o2confRaw, callbackData, state.RedirectURL)
-		if err != nil {
-			model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeBruteForceOauth2, model.BlockIDToken)
-			return nil, err
-		}
-
-		var bind model.Oauth2Bind
-		var bindUser model.User
-		state.Provider = strings.ToLower(state.Provider)
-		switch state.Action {
-		case model.RTypeBind:
-			u, authorized := c.Get(model.CtxKeyAuthorizedUser)
-			if !authorized {
-				return nil, singleton.Localizer.ErrorT("unauthorized")
-			}
-			user := u.(*model.User)
-
-			// The session was authenticated before exchangeOpenId waited for the
-			// provider; a credential change during that wait has revoked it. Check
-			// it again in the transaction that stores the binding, so that no such
-			// change can land between the check and the write either.
-			err = singleton.DB.Transaction(func(tx *gorm.DB) error {
-				if !jwtSessionStillLive(tx, state.SessionID, user.ID) {
-					return singleton.Localizer.ErrorT("unauthorized")
-				}
-
-				result := tx.Where("provider = ? AND open_id = ?", state.Provider, openId).Limit(1).Find(&bind)
-				if result.Error != nil && result.Error != gorm.ErrRecordNotFound {
-					return newGormError("%v", result.Error)
-				}
-				bind.UserID = user.ID
-				bind.Provider = state.Provider
-				bind.OpenID = openId
-
-				if result.Error == gorm.ErrRecordNotFound {
-					result = tx.Create(&bind)
-				} else {
-					result = tx.Save(&bind)
-				}
-				if result.Error != nil {
-					return newGormError("%v", result.Error)
-				}
-				return nil
-			})
-			if err != nil {
-				return nil, err
-			}
-			// The session issued below continues the one that was just checked.
-			// Issue it for the token_version that one was authenticated against,
-			// not for a reloaded one: a credential change after the check then
-			// leaves it as stale as the session it came from.
-			bindUser = *user
-		default:
-			if err := singleton.DB.Where("provider = ? AND open_id = ?", state.Provider, openId).First(&bind).Error; err != nil {
-				return nil, singleton.Localizer.ErrorT("oauth2 user not binded yet")
-			}
-			if err := singleton.DB.First(&bindUser, bind.UserID).Error; err != nil {
-				return nil, newGormError("%v", err)
-			}
-		}
-
-		claims, err := issueJWTSession(c, &bindUser, singleton.Conf.JWTTimeout)
-		if err != nil {
-			return nil, err
-		}
-		tokenString, _, err := jwtConfig.TokenGenerator(claims)
-		if err != nil {
-			return nil, err
-		}
-
-		jwtConfig.SetCookie(c, tokenString)
-		setCSRFCookie(c)
-		c.Redirect(http.StatusFound, utils.IfOr(state.Action == model.RTypeBind, "/dashboard/profile?oauth2=true", "/dashboard/login?oauth2=true"))
-
-		return nil, errNoop
+		return nil, fmt.Errorf("OAuth2 登录已关闭，请使用 Passkey 登录")
 	}
 }
 

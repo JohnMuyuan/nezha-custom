@@ -494,6 +494,7 @@ export interface ModelProfile {
     id: number
     login_ip: string
     oauth2_bind: Record<string, string>
+    passkey_only?: boolean
     password: string
     reject_password: boolean
     role: number
@@ -503,9 +504,9 @@ export interface ModelProfile {
 }
 
 export interface ModelProfileForm {
-    new_password: string
+    new_password?: string
     new_username: string
-    original_password: string
+    original_password?: string
     reject_password?: boolean
 }
 

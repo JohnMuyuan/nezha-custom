@@ -12,6 +12,7 @@ const AuthContext = createContext<AuthContextProps>({
     profile: undefined,
     loading: true,
     login: async () => "error",
+    completePasskeyAuth: async () => {},
     loginOauth2: () => {},
     logout: () => {},
 })
@@ -73,6 +74,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                     toast.error("6 位动态验证码（或恢复码）不正确或已过期，请核对后重试")
                     return "totp_invalid"
                 }
+                if (msg === "ApiErrorPasskeyOnly") {
+                    toast.error("当前已锁定「仅限 Passkey 登录」，请点击 Passkey 按钮登录")
+                    return "error"
+                }
                 if (msg === "ApiErrorUnauthorized" || msg === "Unauthorized") {
                     toast(t("InvalidUsernameOrPassword"))
                 } else {
@@ -87,6 +92,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         },
         [navigate, setProfile, t],
     )
+
+    const completePasskeyAuth = useCallback(async () => {
+        try {
+            const user = await getProfile()
+            authEpoch.current++
+            user.role = normalizeRole(user.role)
+            setProfile(user)
+            navigate(consumeMCPOAuthReturn())
+        } catch (error: any) {
+            toast.error(error?.message || "加载管理员信息失败")
+        } finally {
+            setLoading(false)
+        }
+    }, [navigate, setProfile])
 
     const loginOauth2 = useCallback(async () => {
         try {
@@ -123,10 +142,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             profile,
             loading,
             login,
+            completePasskeyAuth,
             loginOauth2,
             logout,
         }),
-        [profile, loading, login, loginOauth2, logout],
+        [profile, loading, login, completePasskeyAuth, loginOauth2, logout],
     )
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

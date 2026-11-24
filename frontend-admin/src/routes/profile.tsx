@@ -1,53 +1,17 @@
-import { Oauth2RequestType, getOauth2RedirectURL, unbindOauth2 } from "@/api/oauth2"
-import { getProfile } from "@/api/user"
+import { PasskeySecurityCard } from "@/components/passkey-card"
 import { ProfileCard } from "@/components/profile"
 import { TotpSecurityCard } from "@/components/totp-card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { OAuthProviderIcon } from "@/components/ui/icon"
 import { useMainStore } from "@/hooks/useMainStore"
 import { useMediaQuery } from "@/hooks/useMediaQuery"
 import { useServer } from "@/hooks/useServer"
-import useSetting from "@/hooks/useSetting"
 import { Boxes, Server } from "lucide-react"
-import { useEffect } from "react"
-import { toast } from "sonner"
 
 export default function ProfilePage() {
-    const { profile, setProfile } = useMainStore()
+    const { profile } = useMainStore()
     const { servers, serverGroups } = useServer()
-    const { data: settingData } = useSetting()
     const isDesktop = useMediaQuery("(min-width: 890px)")
-
-    useEffect(() => {
-        const oauth2 = new URLSearchParams(window.location.search).get("oauth2")
-        if (oauth2) {
-            getProfile().then((profile) => {
-                setProfile(profile)
-            })
-            window.history.replaceState({}, document.title, window.location.pathname)
-        }
-    }, [setProfile])
-
-    const bindO2 = async (provider: string) => {
-        try {
-            const redirectUrl = await getOauth2RedirectURL(provider, Oauth2RequestType.BIND)
-            window.location.assign(redirectUrl.redirect!)
-        } catch (error: any) {
-            toast.error(error.message)
-        }
-    }
-
-    const unbindO2 = async (provider: string) => {
-        try {
-            await unbindOauth2(provider)
-            const profile = await getProfile()
-            setProfile(profile)
-        } catch (error: any) {
-            toast.error(error.message)
-        }
-    }
 
     return (
         profile && (
@@ -56,7 +20,7 @@ export default function ProfilePage() {
                     className={`flex ${isDesktop ? "flex-col mr-6" : "gap-4 w-full items-center"}`}
                 >
                     <Avatar
-                        className={`${isDesktop ? "h-[300px] w-[300px]" : "h-[150px] w-[150px]"} border-foreground border-[1px]`}
+                        className={`${isDesktop ? "h-[240px] w-[240px]" : "h-[120px] w-[120px]"} border-foreground border-[1px]`}
                     >
                         <AvatarImage
                             src={
@@ -72,7 +36,7 @@ export default function ProfilePage() {
                         <p className="text-gray-400">IP: {profile.login_ip || "Unknown"}</p>
                     </div>
                     {isDesktop && (
-                        <ProfileCard className="flex mt-4 justify-center items-center max-w-[300px] rounded-lg" />
+                        <ProfileCard className="flex mt-4 justify-center items-center max-w-[240px] rounded-lg" />
                     )}
                 </div>
                 {!isDesktop && (
@@ -80,73 +44,30 @@ export default function ProfilePage() {
                 )}
                 <div className="w-full">
                     <div className="flex flex-col gap-4">
+                        <PasskeySecurityCard />
                         <TotpSecurityCard />
-                        <Card className="w-full">
-                            <CardHeader>
-                                <CardTitle className="flex gap-2 text-xl items-center">
-                                    <Server /> Servers
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="text-lg font-semibold">
-                                {servers?.length || 0}
-                            </CardContent>
-                        </Card>
-                        <Card className="w-full">
-                            <CardHeader>
-                                <CardTitle className="flex gap-2 text-xl items-center">
-                                    <Boxes /> Server Groups
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="text-lg font-semibold">
-                                {serverGroups?.length || 0}
-                            </CardContent>
-                        </Card>
-
-                        <Card className="w-full">
-                            <CardHeader>
-                                <CardTitle className="flex gap-2 text-xl items-center">
-                                    <Boxes /> Oauth2 bindings
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="text-lg font-semibold">
-                                {settingData?.config?.oauth2_providers?.map((provider) => (
-                                    <div
-                                        key={provider}
-                                        className="flex justify-between items-center flex-wrap gap-2"
-                                    >
-                                        <section className="flex gap-2 items-center">
-                                            <OAuthProviderIcon
-                                                provider={provider}
-                                                className="size-4 text-muted-foreground"
-                                            />
-                                            <p>{provider}: </p>
-                                            {profile.oauth2_bind?.[provider.toLowerCase()] && (
-                                                <p className=" bg-muted px-1.5 py-0.5 text-sm rounded-full">
-                                                    {profile.oauth2_bind?.[provider.toLowerCase()]}
-                                                </p>
-                                            )}
-                                        </section>
-                                        {profile.oauth2_bind?.[provider.toLowerCase()] ? (
-                                            <Button
-                                                className="w-fit bg-red-600 hover:bg-red-500 dark:text-white rounded-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] my-1"
-                                                size="sm"
-                                                onClick={() => unbindO2(provider)}
-                                            >
-                                                Unbind
-                                            </Button>
-                                        ) : (
-                                            <Button
-                                                className="my-1"
-                                                size="sm"
-                                                onClick={() => bindO2(provider)}
-                                            >
-                                                Bind
-                                            </Button>
-                                        )}
-                                    </div>
-                                ))}
-                            </CardContent>
-                        </Card>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <Card className="w-full">
+                                <CardHeader>
+                                    <CardTitle className="flex gap-2 text-lg items-center">
+                                        <Server className="h-4 w-4" /> Servers
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="text-xl font-semibold">
+                                    {servers?.length || 0}
+                                </CardContent>
+                            </Card>
+                            <Card className="w-full">
+                                <CardHeader>
+                                    <CardTitle className="flex gap-2 text-lg items-center">
+                                        <Boxes className="h-4 w-4" /> Server Groups
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="text-xl font-semibold">
+                                    {serverGroups?.length || 0}
+                                </CardContent>
+                            </Card>
+                        </div>
                     </div>
                 </div>
             </div>

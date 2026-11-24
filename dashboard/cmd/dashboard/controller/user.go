@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"slices"
+	"errors"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -64,8 +64,10 @@ func updateProfile(c *gin.Context) (any, error) {
 	}
 
 	user := *auth.(*model.User)
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(pf.OriginalPassword)); err != nil {
-		return nil, singleton.Localizer.ErrorT("incorrect password")
+	if !user.PasskeyOnly {
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(pf.OriginalPassword)); err != nil {
+			return nil, singleton.Localizer.ErrorT("incorrect password")
+		}
 	}
 
 	// Optional profile fields must not silently replace credentials with empty values.
@@ -80,38 +82,45 @@ func updateProfile(c *gin.Context) (any, error) {
 		user.Password = string(hash)
 	}
 
-	var bindCount int64
-	if err := singleton.DB.Model(&model.Oauth2Bind{}).Where("user_id = ?", auth.(*model.User).ID).Count(&bindCount).Error; err != nil {
-		return nil, newGormError("%v", err)
-	}
+	var passkeyCount int64
+	_ = singleton.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", user.ID).Count(&passkeyCount).Error
 
-	if pf.RejectPassword && bindCount < 1 {
-		return nil, singleton.Localizer.ErrorT("you don't have any oauth2 bindings")
+	if pf.RejectPassword && passkeyCount < 1 {
+		return nil, errors.New("请先至少绑定 1 把 Passkey 后再禁用密码登录")
 	}
 
 	if pf.NewUsername != "" {
 		user.Username = pf.NewUsername
 	}
 	user.RejectPassword = pf.RejectPassword
-	user.TokenVersion += 1
+	if pf.NewPassword != "" {
+		user.TokenVersion += 1
+	}
 	if err := singleton.DB.Save(&user).Error; err != nil {
 		return nil, newGormError("%v", err)
 	}
 
 	singleton.OnUserUpdate(&user)
-	if err := singleton.RevokeJWTSessionsByUser(user.ID); err != nil {
-		return nil, newGormError("%v", err)
+	if pf.NewPassword != "" {
+		if err := singleton.RevokeJWTSessionsByUser(user.ID); err != nil {
+			return nil, newGormError("%v", err)
+		}
+		var tokenIDs []uint64
+		if err := singleton.DB.Model(&model.APIToken{}).Where("user_id = ?", user.ID).Pluck("id", &tokenIDs).Error; err != nil {
+			return nil, newGormError("%v", err)
+		}
+		for _, id := range tokenIDs {
+			patConnectionRegistryShared.revokeToken(id)
+		}
 	}
-	// The version bump already rejects this user's API tokens and MCP OAuth
-	// grants on their next request; also drop the streams they still hold open.
-	var tokenIDs []uint64
-	if err := singleton.DB.Model(&model.APIToken{}).Where("user_id = ?", user.ID).Pluck("id", &tokenIDs).Error; err != nil {
-		return nil, newGormError("%v", err)
-	}
-	for _, id := range tokenIDs {
-		patConnectionRegistryShared.revokeToken(id)
-	}
-	return nil, nil
+
+	rpID, _, _ := resolveWebAuthnRP(c)
+	userHandle, _, _ := ensurePasskeyUserHandle(&user)
+	return gin.H{
+		"rp_id":    rpID,
+		"user_id":  userHandle,
+		"username": user.Username,
+	}, nil
 }
 
 // List user
@@ -143,37 +152,7 @@ func listUser(c *gin.Context) ([]model.User, error) {
 // @Success 200 {object} model.CommonResponse[uint64]
 // @Router /user [post]
 func createUser(c *gin.Context) (uint64, error) {
-	var uf model.UserForm
-	if err := c.ShouldBindJSON(&uf); err != nil {
-		return 0, err
-	}
-
-	if len(uf.Password) < 6 {
-		return 0, singleton.Localizer.ErrorT("password length must be greater than 6")
-	}
-	if uf.Username == "" {
-		return 0, singleton.Localizer.ErrorT("username can't be empty")
-	}
-	if uf.Role > model.RoleMember {
-		return 0, singleton.Localizer.ErrorT("invalid role")
-	}
-
-	var u model.User
-	u.Username = uf.Username
-	u.Role = uf.Role
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(uf.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return 0, err
-	}
-	u.Password = string(hash)
-
-	if err := singleton.DB.Create(&u).Error; err != nil {
-		return 0, err
-	}
-
-	singleton.OnUserUpdate(&u)
-	return u.ID, nil
+	return 0, errors.New("单管理员模式已启用，已关闭多用户管理")
 }
 
 // Batch delete users
@@ -188,21 +167,7 @@ func createUser(c *gin.Context) (uint64, error) {
 // @Success 200 {object} model.CommonResponse[any]
 // @Router /batch-delete/user [post]
 func batchDeleteUser(c *gin.Context) (any, error) {
-	var ids []uint64
-	if err := c.ShouldBindJSON(&ids); err != nil {
-		return nil, err
-	}
-	auth := c.MustGet(model.CtxKeyAuthorizedUser).(*model.User)
-	// User zero owns legacy system resources and is not a deletable account.
-	if slices.Contains(ids, uint64(0)) {
-		return nil, singleton.Localizer.ErrorT("cannot delete reserved user")
-	}
-	if slices.Contains(ids, auth.ID) {
-		return nil, singleton.Localizer.ErrorT("can't delete yourself")
-	}
-
-	err := singleton.OnUserDelete(ids, newGormError)
-	return nil, err
+	return nil, errors.New("单管理员模式已启用，已关闭多用户管理")
 }
 
 // List online users

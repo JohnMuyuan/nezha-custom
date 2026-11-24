@@ -1,4 +1,13 @@
-import { Oauth2RequestType, getOauth2RedirectURL } from "@/api/oauth2"
+import "webauthn-polyfills"
+
+import {
+    AuthPolicyResponse,
+    beginPasskeyLogin,
+    completePasskeyLoginTOTP,
+    finishPasskeyLoginRaw,
+    getAuthPolicy,
+    signalUnknownCredentialSafe,
+} from "@/api/passkey"
 import { Button } from "@/components/ui/button"
 import {
     Form,
@@ -8,16 +17,23 @@ import {
     FormLabel,
     FormMessage,
 } from "@/components/ui/form"
-import { OAuthProviderIcon } from "@/components/ui/icon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/hooks/useAuth"
-import useSetting from "@/hooks/useSetting"
 import { zodResolver } from "@hookform/resolvers/zod"
 import i18next from "i18next"
-import { ArrowLeft, Eye, EyeOff, KeyRound, Loader2, ShieldCheck } from "lucide-react"
-import React, { useEffect, useRef, useState } from "react"
+import {
+    ArrowLeft,
+    Eye,
+    EyeOff,
+    Fingerprint,
+    KeyRound,
+    Loader2,
+    Lock,
+    ShieldCheck,
+} from "lucide-react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -32,35 +48,198 @@ const formSchema = z.object({
     }),
 })
 
+type PendingTOTPState =
+    | { mode: "password"; username: string; password: string }
+    | { mode: "passkey"; username: string; pendingToken: string }
+
 function Login() {
-    const { login, loginOauth2 } = useAuth()
-    const { data: settingData } = useSetting()
+    const { login, completePasskeyAuth } = useAuth()
     const { t } = useTranslation()
 
+    const [policy, setPolicy] = useState<AuthPolicyResponse | null>(null)
+    const [policyLoaded, setPolicyLoaded] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
     const [submitting, setSubmitting] = useState(false)
+    const [passkeyBusy, setPasskeyBusy] = useState(false)
 
-    // Step 2: 2FA TOTP verification state
-    const [pendingCreds, setPendingCreds] = useState<{
-        username: string
-        password: string
-    } | null>(null)
+    // Step 2: 2FA TOTP verification state (for new-device Passkey login or password login)
+    const [pendingTOTP, setPendingTOTP] = useState<PendingTOTPState | null>(null)
     const [totpCode, setTotpCode] = useState("")
     const [useRecoveryCode, setUseRecoveryCode] = useState(false)
     const totpInputRef = useRef<HTMLInputElement>(null)
+    const autofillAbortRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
-        const oauth2 = new URLSearchParams(window.location.search).get("oauth2")
-        if (oauth2) {
-            loginOauth2()
+        let alive = true
+        getAuthPolicy()
+            .then((res) => {
+                if (alive) setPolicy(res)
+            })
+            .catch(() => {
+                if (alive) {
+                    setPolicy({
+                        single_admin: true,
+                        passkey_available: false,
+                        passkey_only: false,
+                        password_login_enabled: true,
+                        oauth2_enabled: false,
+                        emergency_password_override: false,
+                        rp_id: "",
+                    })
+                }
+            })
+            .finally(() => {
+                if (alive) setPolicyLoaded(true)
+            })
+        return () => {
+            alive = false
         }
-    }, [loginOauth2])
+    }, [])
 
     useEffect(() => {
-        if (pendingCreds) {
+        if (pendingTOTP) {
             totpInputRef.current?.focus()
         }
-    }, [pendingCreds, useRecoveryCode])
+    }, [pendingTOTP, useRecoveryCode])
+
+    const handlePasskeyServerVerify = useCallback(
+        async (challengeId: string, serverRpId: string, encodedCredential: any) => {
+            try {
+                const res = await finishPasskeyLoginRaw(challengeId, encodedCredential)
+                if (!res.ok) {
+                    if (res.status === 404) {
+                        await signalUnknownCredentialSafe(serverRpId, encodedCredential?.id)
+                        toast.error("该 Passkey 未绑定或已被删除，请选择其他密钥")
+                    } else {
+                        toast.error("Passkey 登录失败", { description: res.error })
+                    }
+                    return
+                }
+
+                const data = res.data
+                if (data?.totp_required && data.pending_token) {
+                    setPendingTOTP({
+                        mode: "passkey",
+                        username: data.username || "管理员",
+                        pendingToken: data.pending_token,
+                    })
+                    setTotpCode("")
+                    setUseRecoveryCode(false)
+                    return
+                }
+
+                if (data?.ok) {
+                    if (data.trusted_device) {
+                        toast.success("老设备 Passkey 验证通过，免 2FA 直接登录")
+                    } else {
+                        toast.success("Passkey 登录成功")
+                    }
+                    await completePasskeyAuth()
+                }
+            } catch (err: any) {
+                toast.error("Passkey 登录请求失败", { description: err?.message })
+            }
+        },
+        [completePasskeyAuth],
+    )
+
+    // Conditional UI autofill mediation when password form + passkey are both active
+    const initializeConditionalAutofill = useCallback(async () => {
+        if (!policy?.passkey_available || !policy?.password_login_enabled || pendingTOTP) {
+            return
+        }
+        const pkc = (window as any).PublicKeyCredential
+        if (!pkc || typeof pkc.getClientCapabilities !== "function") return
+        if (typeof pkc.parseRequestOptionsFromJSON !== "function") return
+
+        try {
+            const caps = await pkc.getClientCapabilities()
+            if (caps?.conditionalGet !== true) return
+
+            autofillAbortRef.current?.abort()
+            const controller = new AbortController()
+            autofillAbortRef.current = controller
+
+            const begin = await beginPasskeyLogin()
+            if (controller.signal.aborted) return
+            const publicKey = pkc.parseRequestOptionsFromJSON(begin.publicKey)
+            const serverRpId = publicKey?.rpId || begin.rp_id
+
+            let credential: any
+            try {
+                credential = await navigator.credentials.get({
+                    publicKey,
+                    signal: controller.signal,
+                    mediation: "conditional" as any,
+                })
+            } catch (err: any) {
+                if (err?.name === "NotAllowedError" || err?.name === "AbortError") {
+                    return
+                }
+                return
+            }
+
+            if (!credential || typeof credential.toJSON !== "function") return
+            await handlePasskeyServerVerify(begin.challenge_id, serverRpId, credential.toJSON())
+        } catch {
+            // Non-fatal progressive enhancement
+        }
+    }, [policy, pendingTOTP, handlePasskeyServerVerify])
+
+    useEffect(() => {
+        if (!policyLoaded) return
+        void initializeConditionalAutofill()
+        return () => {
+            autofillAbortRef.current?.abort()
+        }
+    }, [policyLoaded, initializeConditionalAutofill])
+
+    const handleExplicitPasskeyLogin = async () => {
+        if (passkeyBusy) return
+        const pkc = (window as any).PublicKeyCredential
+        if (!pkc || typeof pkc.parseRequestOptionsFromJSON !== "function") {
+            toast.error("当前浏览器不支持 Passkey，请使用 HTTPS 及新版 Chrome/Edge/Safari/Firefox")
+            return
+        }
+
+        // Abort any ongoing conditional autofill before launching the explicit passkey dialog
+        autofillAbortRef.current?.abort()
+        const controller = new AbortController()
+        autofillAbortRef.current = controller
+
+        setPasskeyBusy(true)
+        try {
+            const begin = await beginPasskeyLogin()
+            const publicKey = pkc.parseRequestOptionsFromJSON(begin.publicKey)
+            const serverRpId = publicKey?.rpId || begin.rp_id
+
+            let credential: any
+            try {
+                credential = await navigator.credentials.get({
+                    publicKey,
+                    signal: controller.signal,
+                })
+            } catch (err: any) {
+                if (err?.name === "NotAllowedError" || err?.name === "AbortError") {
+                    void initializeConditionalAutofill()
+                    return
+                }
+                toast.error("调用 Passkey 失败", { description: err?.message })
+                return
+            }
+
+            if (!credential || typeof credential.toJSON !== "function") {
+                toast.error("未收到有效的 Passkey 认证响应")
+                return
+            }
+
+            await handlePasskeyServerVerify(begin.challenge_id, serverRpId, credential.toJSON())
+        } catch (err: any) {
+            toast.error("发起 Passkey 登录失败", { description: err?.message })
+        } finally {
+            setPasskeyBusy(false)
+        }
+    }
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -76,7 +255,11 @@ function Login() {
         try {
             const res = await login(values.username, values.password)
             if (res === "totp_required") {
-                setPendingCreds({ username: values.username, password: values.password })
+                setPendingTOTP({
+                    mode: "password",
+                    username: values.username,
+                    password: values.password,
+                })
                 setTotpCode("")
                 setUseRecoveryCode(false)
             }
@@ -87,12 +270,32 @@ function Login() {
 
     async function onSubmitTOTP(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
-        if (!pendingCreds || submitting) return
+        if (!pendingTOTP || submitting) return
         const cleaned = totpCode.trim()
         if (!cleaned) return
         setSubmitting(true)
         try {
-            const res = await login(pendingCreds.username, pendingCreds.password, cleaned)
+            if (pendingTOTP.mode === "passkey") {
+                try {
+                    const res = await completePasskeyLoginTOTP(pendingTOTP.pendingToken, cleaned)
+                    if (res?.ok) {
+                        toast.success("新设备 2FA 验证通过，已自动信任此设备 180 天")
+                        await completePasskeyAuth()
+                    }
+                } catch (err: any) {
+                    const msg = err?.message
+                    if (msg === "ApiErrorTOTPInvalid") {
+                        toast.error("6 位动态验证码（或恢复码）不正确或已过期，请重试")
+                    } else {
+                        toast.error(msg || "验证失败，请重试")
+                    }
+                    setTotpCode("")
+                    totpInputRef.current?.focus()
+                }
+                return
+            }
+
+            const res = await login(pendingTOTP.username, pendingTOTP.password, cleaned)
             if (res === "totp_invalid") {
                 setTotpCode("")
                 totpInputRef.current?.focus()
@@ -102,16 +305,9 @@ function Login() {
         }
     }
 
-    async function loginWith(provider: string) {
-        try {
-            const redirectUrl = await getOauth2RedirectURL(provider, Oauth2RequestType.LOGIN)
-            window.location.assign(redirectUrl.redirect!)
-        } catch (error: any) {
-            toast.error(error.message)
-        }
-    }
-
-    if (pendingCreds) {
+    // Step 2: 2FA Verification (new device after Passkey, or fallback password+2FA)
+    if (pendingTOTP) {
+        const isNewDevicePasskey = pendingTOTP.mode === "passkey"
         return (
             <div className="m-auto mt-24 max-w-xs sm:max-w-sm">
                 <div className="rounded-xl border bg-card p-6 shadow-xs">
@@ -120,19 +316,27 @@ function Login() {
                             <ShieldCheck className="h-5 w-5" />
                         </div>
                         <div>
-                            <h1 className="text-base font-bold">两步验证（2FA）</h1>
+                            <h1 className="text-base font-bold">
+                                {isNewDevicePasskey ? "新设备二次验证（2FA）" : "两步验证（2FA）"}
+                            </h1>
                             <p className="text-xs text-muted-foreground">
-                                正在登录账号：<strong>{pendingCreds.username}</strong>
+                                正在登录管理员：<strong>{pendingTOTP.username}</strong>
                             </p>
                         </div>
                     </div>
+
+                    {isNewDevicePasskey && (
+                        <p className="mb-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                            ✅ Passkey 已验证通过。检测到这是新设备，完成本次 2FA 后将自动记住该设备{" "}
+                            <strong>180 天</strong>，以后掉登录只需 Passkey 即可秒进。
+                        </p>
+                    )}
 
                     <form onSubmit={onSubmitTOTP} className="space-y-4">
                         <div className="space-y-1.5">
                             <Label htmlFor="login-totp-input" className="text-xs font-semibold">
                                 {useRecoveryCode ? "8 位应急恢复码" : "6 位动态验证码"}
                             </Label>
-                            {/* Place instructional hint above the input so autofill popovers and mobile keyboards do not obscure it */}
                             <p id="login-totp-hint" className="text-xs text-muted-foreground">
                                 {useRecoveryCode
                                     ? "请输入启用 2FA 时保存的一次性恢复码（如 A1B2-C3D4），用过即失效。"
@@ -180,13 +384,13 @@ function Login() {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setPendingCreds(null)
+                                    setPendingTOTP(null)
                                     setTotpCode("")
                                 }}
                                 className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
                             >
                                 <ArrowLeft className="h-3.5 w-3.5" />
-                                返回修改账号密码
+                                返回登录页
                             </button>
                             <button
                                 type="button"
@@ -206,10 +410,83 @@ function Login() {
         )
     }
 
+    // Passkey-Only Locked Mode: clean zero-password, zero-OAuth2 sign-in screen
+    if (policyLoaded && policy?.passkey_only && !policy?.password_login_enabled) {
+        return (
+            <div className="m-auto mt-24 max-w-xs sm:max-w-sm">
+                <div className="space-y-5 rounded-xl border bg-card p-6 text-center shadow-xs">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <Fingerprint className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-1">
+                        <h1 className="text-lg font-bold">管理员 Passkey 登录</h1>
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                            已锁定「仅限 Passkey 登录」，密码与 OAuth2 入口均已关闭。
+                            <br />
+                            老设备只需 Passkey 一键进入，新设备将自动触发 6 位 2FA 验证。
+                        </p>
+                    </div>
+                    <Button
+                        type="button"
+                        disabled={passkeyBusy}
+                        onClick={() => void handleExplicitPasskeyLogin()}
+                        className="min-h-[46px] w-full gap-2 rounded-lg text-sm font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    >
+                        {passkeyBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Fingerprint className="h-4 w-4" />
+                        )}
+                        使用 Passkey 登录
+                    </Button>
+                    <p className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
+                        <Lock className="h-3 w-3" />
+                        <span>单管理员模式 · 端到端防钓鱼硬件验签</span>
+                    </p>
+                </div>
+            </div>
+        )
+    }
+
+    // Initial Setup / Emergency Override Mode (Password + optional Passkey button, NO OAuth2)
     return (
-        <div className="m-auto mt-28 max-w-xs sm:max-w-sm">
+        <div className="m-auto mt-24 max-w-xs sm:max-w-sm">
+            {policy?.emergency_password_override && (
+                <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                    ⚠️ 应急救砖模式已启用（<code>NZ_EMERGENCY_ALLOW_PASSWORD=1</code>），密码登录已临时开放。
+                </div>
+            )}
+
+            {policy?.passkey_available && (
+                <div className="mb-5 space-y-3">
+                    <Button
+                        type="button"
+                        disabled={passkeyBusy}
+                        onClick={() => void handleExplicitPasskeyLogin()}
+                        className="min-h-[44px] w-full gap-2 rounded-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                    >
+                        {passkeyBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Fingerprint className="h-4 w-4" />
+                        )}
+                        使用 Passkey 登录
+                    </Button>
+                    <div className="flex w-full items-center gap-2">
+                        <Separator className="flex-1" />
+                        <span className="text-[11px] text-muted-foreground">
+                            或使用管理员密码（绑定 Passkey 后可彻底关闭）
+                        </span>
+                        <Separator className="flex-1" />
+                    </div>
+                </div>
+            )}
+
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <p id="signin-passkey-desc" className="sr-only">
+                        管理员登录表单，支持 Passkey 自动填充或密码登录
+                    </p>
                     <FormField
                         control={form.control}
                         name="username"
@@ -219,7 +496,9 @@ function Login() {
                                 <FormControl>
                                     <Input
                                         placeholder="admin"
-                                        autoComplete="username"
+                                        autoComplete="username webauthn"
+                                        aria-describedby="signin-passkey-desc"
+                                        autoFocus
                                         autoCorrect="off"
                                         autoCapitalize="none"
                                         spellCheck={false}
@@ -277,30 +556,7 @@ function Login() {
                         {t("Login")}
                     </Button>
                 </form>
-                {settingData?.config?.oauth2_providers &&
-                    settingData?.config?.oauth2_providers.length > 0 && (
-                        <section className="my-3 flex w-full items-center">
-                            <Separator className="flex-1" />
-                            <div className="flex w-full max-w-[100px] justify-center text-xs text-muted-foreground">
-                                OAuth2
-                            </div>
-                            <Separator className="flex-1" />
-                        </section>
-                    )}
             </Form>
-            <div className="mt-3 flex flex-col gap-3">
-                {settingData?.config?.oauth2_providers?.map((p: string) => (
-                    <Button
-                        key={p}
-                        type="button"
-                        className="w-full rounded-lg bg-muted text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] hover:bg-muted/80 hover:text-primary/80"
-                        onClick={() => loginWith(p)}
-                    >
-                        <OAuthProviderIcon provider={p} className="size-4" />
-                        {p}
-                    </Button>
-                ))}
-            </div>
         </div>
     )
 }

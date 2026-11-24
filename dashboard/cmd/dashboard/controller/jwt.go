@@ -230,11 +230,24 @@ func authenticator() func(c *gin.Context) (any, error) {
 		var user model.User
 		realip := c.GetString(model.CtxKeyRealIPStr)
 
-		if err := singleton.DB.Select("id", "password", "reject_password", "token_version", "totp_enabled", "totp_secret", "totp_recovery_hashes", "totp_last_used_step").Where("username = ?", loginVals.Username).First(&user).Error; err != nil {
+		if err := singleton.DB.Select("id", "username", "role", "password", "reject_password", "passkey_only", "token_version", "totp_enabled", "totp_secret", "totp_recovery_hashes", "totp_last_used_step").Where("username = ?", loginVals.Username).First(&user).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeLoginFail, model.BlockIDUnknownUser)
 			}
 			return nil, jwt.ErrFailedAuthentication
+		}
+
+		// Single-admin mode: reject non-admin logins.
+		if !user.Role.IsAdmin() {
+			model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeLoginFail, int64(user.ID))
+			return nil, jwt.ErrFailedAuthentication
+		}
+
+		// Passkey-only lock: block password login once admin has bound Passkey(s) and locked Passkey-only mode
+		// (unless emergency break-glass env var NZ_EMERGENCY_ALLOW_PASSWORD=1 is explicitly set).
+		if isPasskeyOnlyActive() {
+			c.Set(ctxKeyPasskeyOnlyBlocked, true)
+			return nil, errPasskeyOnly
 		}
 
 		if user.RejectPassword {
@@ -264,6 +277,9 @@ func authenticator() func(c *gin.Context) (any, error) {
 		model.UnblockIP(singleton.DB, realip, model.BlockIDUnknownUser)
 		model.UnblockIP(singleton.DB, realip, int64(user.ID))
 
+		// Trust this browser for 180 days once password + 2FA succeeds so subsequent Passkey logins skip 2FA.
+		_ = grantOrRefreshTrustedDevice(c, &user)
+
 		return issueJWTSession(c, &user, singleton.Conf.JWTTimeout)
 	}
 }
@@ -278,7 +294,9 @@ func authorizator() func(data any, c *gin.Context) bool {
 func unauthorized() func(c *gin.Context, code int, message string) {
 	return func(c *gin.Context, code int, message string) {
 		errCode := "ApiErrorUnauthorized"
-		if c.GetBool(ctxKeyTOTPRequired) {
+		if c.GetBool(ctxKeyPasskeyOnlyBlocked) {
+			errCode = "ApiErrorPasskeyOnly"
+		} else if c.GetBool(ctxKeyTOTPRequired) {
 			errCode = "ApiErrorTOTPRequired"
 		} else if c.GetBool(ctxKeyTOTPInvalid) {
 			errCode = "ApiErrorTOTPInvalid"

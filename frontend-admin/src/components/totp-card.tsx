@@ -219,7 +219,7 @@ export function TotpSecurityCard() {
                 {/* 未开启时：第 1 步校验密码生成本地二维码 */}
                 {!enabled && step === "idle" && (
                     <form onSubmit={handleStartSetup} className="flex flex-col gap-2.5 sm:flex-row sm:items-end">
-                        {!profile.reject_password && (
+                        {!profile.reject_password && !profile.passkey_only && (
                             <div className="flex-1 space-y-1">
                                 <Label htmlFor="totp-setup-pwd" className="text-xs font-medium">
                                     输入当前登录密码以生成绑定二维码
@@ -347,7 +347,7 @@ export function TotpSecurityCard() {
                 {enabled && step === "idle" && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-2.5">
                         <span className="text-emerald-800 dark:text-emerald-200">
-                            ✅ 当前账号每次密码登录后都会强制校验 6 位动态验证码（或一次性应急恢复码）。
+                            ✅ 已启用 2FA：新设备登录需通过 Passkey + 6 位动态验证码（或一次性应急恢复码）；已信任的老设备 180 天内掉登录仅需 Passkey。
                         </span>
                         <Button
                             type="button"
@@ -372,10 +372,12 @@ export function TotpSecurityCard() {
                         className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4"
                     >
                         <p className="font-semibold text-destructive">
-                            关闭两步验证需要核验你的当前密码与动态验证码（或应急恢复码）：
+                            {profile.passkey_only
+                                ? "关闭两步验证需要核验你的 6 位动态验证码（或应急恢复码）："
+                                : "关闭两步验证需要核验你的当前密码与动态验证码（或应急恢复码）："}
                         </p>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {!profile.reject_password && (
+                            {!profile.reject_password && !profile.passkey_only && (
                                 <div className="space-y-1">
                                     <Label htmlFor="totp-disable-pwd" className="text-xs">
                                         当前登录密码

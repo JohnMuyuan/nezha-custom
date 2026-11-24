@@ -112,6 +112,7 @@ func InitDBFromPath(path string) error {
 		model.AIOpsConfig{}, model.AIOpsIncident{}, model.AIOpsChatSession{}, model.AIOpsChatMessage{},
 		model.AIOpsSSHKeySnapshot{},
 		model.BackupConfig{},
+		model.PasskeyCredential{}, model.TrustedDevice{},
 		model.MCPOAuthClient{}, model.MCPOAuthCode{}, model.MCPOAuthGrant{})
 	if err != nil {
 		return err

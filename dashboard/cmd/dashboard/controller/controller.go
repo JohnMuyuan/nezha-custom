@@ -88,6 +88,10 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	// （GHSA-8fgr-wx8p-v6q7）。
 	api := r.Group("api/v1", restRequestBodyLimitMiddleware(restAPIRequestMaxBodyBytes))
 	api.POST("/login", authMiddleware.LoginHandler)
+	api.GET("/auth/policy", commonHandler(getAuthPolicy))
+	api.POST("/passkey/login/begin", commonHandler(passkeyLoginBegin))
+	api.POST("/passkey/login/finish", commonHandler(passkeyLoginFinish(authMiddleware)))
+	api.POST("/passkey/login/totp", commonHandler(passkeyLoginTOTP(authMiddleware)))
 
 	fallbackAuthMw := fallbackAuthMiddleware(authMiddleware)
 	fallbackAuth := api.Group("", fallbackAuthMw)
@@ -133,6 +137,15 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.POST("/profile/2fa/setup", patForbidden, commonHandler(setupTOTP))
 	auth.POST("/profile/2fa/enable", patForbidden, commonHandler(enableTOTP))
 	auth.POST("/profile/2fa/disable", patForbidden, commonHandler(disableTOTP))
+	auth.GET("/profile/passkeys", patForbidden, commonHandler(listPasskeys))
+	auth.POST("/profile/passkey/register/begin", patForbidden, commonHandler(passkeyRegisterBegin))
+	auth.POST("/profile/passkey/register/finish", patForbidden, commonHandler(passkeyRegisterFinish))
+	auth.PUT("/profile/passkeys/:id", patForbidden, commonHandler(renamePasskey))
+	auth.DELETE("/profile/passkeys/:id", patForbidden, commonHandler(deletePasskey))
+	auth.PUT("/profile/auth-policy", patForbidden, commonHandler(updateAuthPolicy))
+	auth.GET("/profile/trusted-devices", patForbidden, commonHandler(listTrustedDevices))
+	auth.DELETE("/profile/trusted-devices/:id", patForbidden, commonHandler(revokeTrustedDevice))
+	auth.DELETE("/profile/trusted-devices", patForbidden, commonHandler(revokeAllTrustedDevices))
 	auth.POST("/oauth2/:provider/unbind", patForbidden, commonHandler(unbindOauth2))
 	auth.GET("/mcp/oauth/consent", patForbidden, mcpOAuthAvailable, commonHandler(mcpOAuthConsentInfo))
 	auth.POST("/mcp/oauth/consent", patForbidden, mcpOAuthAvailable, commonHandler(mcpOAuthConsent))
@@ -533,6 +546,8 @@ func fallbackToFrontend(frontendDist fs.FS) func(*gin.Context) {
 		// 浏览器内 SPA 看起来正常，但 monitoring / 链接预览会以为站点挂了）。
 		// 新增前端路由时必须在 admin-frontend/src/main.tsx 与这里同步加。
 		regexp.MustCompile(`^/dashboard/transfer$`),
+		regexp.MustCompile(`^/dashboard/ai-ops$`),
+		regexp.MustCompile(`^/dashboard/migration$`),
 	}
 
 	getFallbackStatusCode := func(path string) int {

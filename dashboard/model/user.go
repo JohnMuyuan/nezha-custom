@@ -34,6 +34,8 @@ type User struct {
 	TOTPPendingSecret  string `json:"-" gorm:"type:varchar(128)"`
 	TOTPRecoveryHashes string `json:"-" gorm:"type:text"`
 	TOTPLastUsedStep   int64  `json:"-" gorm:"not null;default:0"`
+	PasskeyUserHandle  string `json:"-" gorm:"type:varchar(128)"`
+	PasskeyOnly        bool   `json:"passkey_only" gorm:"not null;default:false"`
 }
 
 type UserInfo struct {

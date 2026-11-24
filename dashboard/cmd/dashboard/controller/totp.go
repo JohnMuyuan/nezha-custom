@@ -123,7 +123,7 @@ func setupTOTP(c *gin.Context) (totpSetupResponse, error) {
 	if fresh.TOTPEnabled {
 		return totpSetupResponse{}, errors.New("当前账号已经开启了 2FA，请先关闭后再重新绑定")
 	}
-	if !fresh.RejectPassword {
+	if !fresh.RejectPassword && !fresh.PasskeyOnly {
 		if err := bcrypt.CompareHashAndPassword([]byte(fresh.Password), []byte(form.Password)); err != nil {
 			return totpSetupResponse{}, errors.New("当前登录密码不正确")
 		}
@@ -223,7 +223,7 @@ func disableTOTP(c *gin.Context) (any, error) {
 	if !fresh.TOTPEnabled {
 		return gin.H{"enabled": false}, nil
 	}
-	if !fresh.RejectPassword {
+	if !fresh.RejectPassword && !fresh.PasskeyOnly {
 		if err := bcrypt.CompareHashAndPassword([]byte(fresh.Password), []byte(form.Password)); err != nil {
 			return nil, errors.New("当前登录密码不正确")
 		}

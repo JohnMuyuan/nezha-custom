@@ -1,6 +1,6 @@
+import { signalCurrentUserDetailsSafe } from "@/api/passkey"
 import { getProfile, updateProfile } from "@/api/user"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
     Dialog,
     DialogClose,
@@ -20,7 +20,6 @@ import {
     FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useMainStore } from "@/hooks/useMainStore"
 import { asOptionalField } from "@/lib/utils"
@@ -32,8 +31,8 @@ import { toast } from "sonner"
 import { z } from "zod"
 
 const profileFormSchema = z.object({
-    original_password: z.string().min(5).max(72),
-    new_password: z.string().min(8).max(72),
+    original_password: z.string().max(72).optional(),
+    new_password: z.string().max(72).optional(),
     new_username: z.string().min(1).max(32),
     reject_password: asOptionalField(z.boolean()),
 })
@@ -41,6 +40,7 @@ const profileFormSchema = z.object({
 export const ProfileCard = ({ className }: { className: string }) => {
     const { t } = useTranslation()
     const { profile, setProfile } = useMainStore()
+    const passkeyOnly = Boolean(profile?.passkey_only)
 
     const form = useForm({
         resolver: zodResolver(profileFormSchema) as any,
@@ -59,18 +59,32 @@ export const ProfileCard = ({ className }: { className: string }) => {
 
     const onSubmit = async (values: any) => {
         try {
-            await updateProfile(values)
-        } catch (e) {
+            const res = await updateProfile({
+                new_username: values.new_username,
+                original_password: passkeyOnly ? "" : values.original_password,
+                new_password: passkeyOnly ? "" : values.new_password,
+                reject_password: values.reject_password,
+            })
+            if (res && res.rp_id && res.user_id && res.username) {
+                await signalCurrentUserDetailsSafe(
+                    res.rp_id,
+                    res.user_id,
+                    res.username,
+                    res.username,
+                )
+            }
+        } catch (e: any) {
             console.error(e)
             toast(t("Error"), {
-                description: t("Results.UnExpectedError"),
+                description: e?.message || t("Results.UnExpectedError"),
             })
             return
         }
-        const profile = await getProfile()
-        setProfile(profile)
+        const updated = await getProfile()
+        setProfile(updated)
         setOpen(false)
         form.reset()
+        toast.success("个人资料已更新")
     }
 
     return (
@@ -102,52 +116,44 @@ export const ProfileCard = ({ className }: { className: string }) => {
                                         </FormItem>
                                     )}
                                 />
-                                <FormField
-                                    control={form.control}
-                                    name="original_password"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>{t("OriginalPassword")}</FormLabel>
-                                            <FormControl>
-                                                <Input autoComplete="current-password" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="new_password"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>{t("NewPassword")}</FormLabel>
-                                            <FormControl>
-                                                <Input {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="reject_password"
-                                    render={({ field }) => (
-                                        <FormItem className="flex items-center space-x-2">
-                                            <FormControl>
-                                                <div className="flex items-center gap-2">
-                                                    <Checkbox
-                                                        checked={field.value}
-                                                        onCheckedChange={field.onChange}
-                                                    />
-                                                    <Label className="text-sm">
-                                                        {t("RejectPassword")}
-                                                    </Label>
-                                                </div>
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                {!passkeyOnly && (
+                                    <>
+                                        <FormField
+                                            control={form.control}
+                                            name="original_password"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>{t("OriginalPassword")}</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            type="password"
+                                                            autoComplete="current-password"
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={form.control}
+                                            name="new_password"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>{t("NewPassword")}</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            type="password"
+                                                            autoComplete="new-password"
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </>
+                                )}
 
                                 <DialogFooter className="justify-end">
                                     <DialogClose asChild>

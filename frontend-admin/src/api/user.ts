@@ -53,6 +53,14 @@ export const deleteUser = async (id: number[]): Promise<void> => {
     return fetcher<void>(FetcherMethod.POST, "/api/v1/batch-delete/user", id)
 }
 
-export const updateProfile = async (data: ModelProfileForm): Promise<void> => {
-    return fetcher<void>(FetcherMethod.POST, "/api/v1/profile", data)
+export interface UpdateProfileResponse {
+    rp_id?: string
+    user_id?: string
+    username?: string
+}
+
+export const updateProfile = async (
+    data: ModelProfileForm,
+): Promise<UpdateProfileResponse | void> => {
+    return fetcher<UpdateProfileResponse | void>(FetcherMethod.POST, "/api/v1/profile", data)
 }
