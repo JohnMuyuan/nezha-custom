@@ -22,7 +22,6 @@ export function TotpSecurityCard() {
     const enabled = Boolean(profile?.totp_enabled)
 
     const [step, setStep] = useState<"idle" | "setup" | "recovery" | "disable">("idle")
-    const [password, setPassword] = useState("")
     const [code, setCode] = useState("")
     const [busy, setBusy] = useState(false)
 
@@ -59,9 +58,8 @@ export function TotpSecurityCard() {
         if (busy) return
         setBusy(true)
         try {
-            const res = await setupTOTP(password)
+            const res = await setupTOTP("")
             setSetupData(res)
-            setPassword("")
             setCode("")
             setStep("setup")
         } catch (err: any) {
@@ -96,8 +94,7 @@ export function TotpSecurityCard() {
         if (busy) return
         setBusy(true)
         try {
-            await disableTOTP(password, code.trim())
-            setPassword("")
+            await disableTOTP("", code.trim())
             setCode("")
             const nextProfile = await getProfile()
             setProfile(nextProfile)
@@ -219,23 +216,6 @@ export function TotpSecurityCard() {
                 {/* 未开启时：第 1 步校验密码生成本地二维码 */}
                 {!enabled && step === "idle" && (
                     <form onSubmit={handleStartSetup} className="flex flex-col gap-2.5 sm:flex-row sm:items-end">
-                        {!profile.reject_password && !profile.passkey_only && (
-                            <div className="flex-1 space-y-1">
-                                <Label htmlFor="totp-setup-pwd" className="text-xs font-medium">
-                                    输入当前登录密码以生成绑定二维码
-                                </Label>
-                                <Input
-                                    id="totp-setup-pwd"
-                                    name="password"
-                                    type="password"
-                                    autoComplete="current-password"
-                                    required
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="请输入当前登录密码"
-                                />
-                            </div>
-                        )}
                         <Button type="submit" disabled={busy} className="gap-1.5">
                             {busy ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -354,7 +334,6 @@ export function TotpSecurityCard() {
                             size="sm"
                             variant="outline"
                             onClick={() => {
-                                setPassword("")
                                 setCode("")
                                 setStep("disable")
                             }}
@@ -372,28 +351,9 @@ export function TotpSecurityCard() {
                         className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4"
                     >
                         <p className="font-semibold text-destructive">
-                            {profile.passkey_only
-                                ? "关闭两步验证需要核验你的 6 位动态验证码（或应急恢复码）："
-                                : "关闭两步验证需要核验你的当前密码与动态验证码（或应急恢复码）："}
+                            关闭两步验证需要核验你的 6 位动态验证码（或应急恢复码）：
                         </p>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {!profile.reject_password && !profile.passkey_only && (
-                                <div className="space-y-1">
-                                    <Label htmlFor="totp-disable-pwd" className="text-xs">
-                                        当前登录密码
-                                    </Label>
-                                    <Input
-                                        id="totp-disable-pwd"
-                                        name="password"
-                                        type="password"
-                                        autoComplete="current-password"
-                                        required
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="输入当前登录密码"
-                                    />
-                                </div>
-                            )}
                             <div className="space-y-1">
                                 <Label htmlFor="totp-disable-code" className="text-xs">
                                     6 位动态验证码 / 应急恢复码

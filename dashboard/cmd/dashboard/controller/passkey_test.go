@@ -86,7 +86,7 @@ func TestPasskeyPolicyAndSingleAdminGuardrails(t *testing.T) {
 	assert.Contains(t, err.Error(), "至少绑定 1 把 Passkey")
 	assert.False(t, isPasskeyOnlyActive())
 
-	// 3. Insert one Passkey credential -> enabling passkey_only succeeds
+	// 3. Insert one Passkey credential -> password login is immediately & permanently locked
 	credID := base64.RawURLEncoding.EncodeToString([]byte("cred-key-1"))
 	require.NoError(t, singleton.DB.Create(&model.PasskeyCredential{
 		UserID:       admin.ID,
@@ -95,6 +95,7 @@ func TestPasskeyPolicyAndSingleAdminGuardrails(t *testing.T) {
 		AAGUID:       "00000000-0000-0000-0000-000000000000",
 		Name:         "My MacBook",
 	}).Error)
+	assert.True(t, isPasskeyOnlyActive())
 
 	w = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(w)
@@ -106,9 +107,19 @@ func TestPasskeyPolicyAndSingleAdminGuardrails(t *testing.T) {
 	assert.True(t, pol.PasskeyOnly)
 	assert.False(t, pol.PasswordLoginEnabled)
 	assert.False(t, pol.OAuth2Enabled)
+
+	// 3b. Refuses re-enabling password login via API
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/profile/auth-policy", bytes.NewBufferString(`{"passkey_only":false}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(model.CtxKeyAuthorizedUser, admin)
+	_, err = updateAuthPolicy(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "永久拔除")
 	assert.True(t, isPasskeyOnlyActive())
 
-	// 4. Cannot delete the last passkey while passkey_only is enabled
+	// 4. Cannot delete the last passkey
 	w = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: credID}}

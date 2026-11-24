@@ -64,7 +64,7 @@ func updateProfile(c *gin.Context) (any, error) {
 	}
 
 	user := *auth.(*model.User)
-	if !user.PasskeyOnly {
+	if !user.PasskeyOnly && !isPasskeyOnlyActive() {
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(pf.OriginalPassword)); err != nil {
 			return nil, singleton.Localizer.ErrorT("incorrect password")
 		}

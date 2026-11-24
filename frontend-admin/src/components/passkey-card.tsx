@@ -14,13 +14,10 @@ import {
     revokeTrustedDevice,
     signalAllAcceptedCredentialsSafe,
     signalUnknownCredentialSafe,
-    updateAuthPolicy,
 } from "@/api/passkey"
-import { getProfile } from "@/api/user"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
 import { useMainStore } from "@/hooks/useMainStore"
 import { lookupPasskeyProvider } from "@/lib/aaguid-map"
 import {
@@ -50,7 +47,7 @@ function formatDateTime(ts?: number): string {
 }
 
 export function PasskeySecurityCard() {
-    const { profile, setProfile } = useMainStore()
+    const { profile } = useMainStore()
     const [loading, setLoading] = useState(true)
     const [passkeyData, setPasskeyData] = useState<PasskeyListResponse | null>(null)
     const [trustedDevices, setTrustedDevices] = useState<TrustedDeviceView[]>([])
@@ -58,7 +55,6 @@ export function PasskeySecurityCard() {
 
     const [registering, setRegistering] = useState(false)
     const [newKeyName, setNewKeyName] = useState("")
-    const [togglingPolicy, setTogglingPolicy] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editingName, setEditingName] = useState("")
     const [busyId, setBusyId] = useState<string | null>(null)
@@ -124,7 +120,6 @@ export function PasskeySecurityCard() {
     if (!profile) return null
 
     const credentials: PasskeyCredentialView[] = passkeyData?.credentials || []
-    const passkeyOnly = Boolean(passkeyData?.passkey_only)
 
     const handleRegisterPasskey = async () => {
         if (registering) return
@@ -222,38 +217,6 @@ export function PasskeySecurityCard() {
         }
     }
 
-    const handleTogglePasskeyOnly = async (next: boolean) => {
-        if (togglingPolicy) return
-        if (next && credentials.length < 1) {
-            toast.error("请先至少绑定 1 把 Passkey，再开启「仅限 Passkey 登录」")
-            return
-        }
-        if (
-            next &&
-            !window.confirm(
-                "确认开启「仅限 Passkey 登录」吗？开启后密码登录与 OAuth2 将彻底关闭，登录页只保留 Passkey 入口。（万一全部密钥丢失，可通过容器环境变量 NZ_EMERGENCY_ALLOW_PASSWORD=1 临时解锁救急）",
-            )
-        ) {
-            return
-        }
-        setTogglingPolicy(true)
-        try {
-            await updateAuthPolicy(next)
-            const freshProfile = await getProfile()
-            setProfile(freshProfile)
-            await refreshAll(false)
-            toast.success(
-                next
-                    ? "🔒 已锁定「仅限 Passkey 登录」，密码与 OAuth2 登录已彻底关闭"
-                    : "已临时恢复密码登录开关",
-            )
-        } catch (err: any) {
-            toast.error("更新登录策略失败", { description: err?.message })
-        } finally {
-            setTogglingPolicy(false)
-        }
-    }
-
     const handleRevokeDevice = async (dev: TrustedDeviceView) => {
         setDeviceBusy(true)
         try {
@@ -294,14 +257,8 @@ export function PasskeySecurityCard() {
                             <Fingerprint className="h-5 w-5 text-primary" />
                             <span>Passkey 通行密钥 & 单管理员登录策略</span>
                         </CardTitle>
-                        <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                passkeyOnly
-                                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                                    : "bg-amber-500/15 text-amber-800 dark:text-amber-300"
-                            }`}
-                        >
-                            {passkeyOnly ? "🔒 已锁定仅限 Passkey 登录" : "🔓 尚未锁定（密码登录仍开启）"}
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                            🔒 仅限 Passkey 登录（密码与 OAuth2 已拔除）
                         </span>
                     </div>
                 </CardHeader>
@@ -318,29 +275,15 @@ export function PasskeySecurityCard() {
                         </div>
                     )}
 
-                    {/* 仅限 Passkey 总开关 */}
-                    <div className="flex flex-col gap-3 rounded-xl border bg-muted/25 p-3.5 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                                <Lock className="h-4 w-4 text-primary" />
-                                <span>仅允许使用 Passkey 登录（彻底关闭密码与 OAuth2）</span>
-                            </div>
-                            <p className="leading-relaxed text-muted-foreground">
-                                开启后，登录页仅保留 Passkey 入口，后端彻底拒绝密码与 OAuth2 登录；
-                                <strong>老设备掉登录只需 Passkey 一键进后台，新设备需额外通过 6 位 2FA 验证</strong>。
-                                建议至少绑定 2 把 Passkey（如电脑 + 手机 / 密码管理器）再锁定。
-                            </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                            <Switch
-                                aria-label="仅允许使用 Passkey 登录"
-                                checked={passkeyOnly}
-                                disabled={
-                                    togglingPolicy || (!passkeyOnly && credentials.length < 1)
-                                }
-                                onCheckedChange={(checked) => void handleTogglePasskeyOnly(checked)}
-                            />
-                        </div>
+                    {/* 永久仅限 Passkey 状态说明 */}
+                    <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5">
+                        <Lock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
+                        <p className="leading-relaxed text-muted-foreground">
+                            账号密码登录与 OAuth2 登录入口已彻底拔除，仅保留 Passkey。
+                            <strong>老设备（180 天内）掉登录只需 Passkey 一键进入，新设备需额外通过 6 位 2FA 二验</strong>。
+                            强烈建议绑定至少 2 把 Passkey 防丢失（万一全丢可通过服务器环境变量{" "}
+                            <code>NZ_EMERGENCY_ALLOW_PASSWORD=1</code> 应急救砖）。
+                        </p>
                     </div>
 
                     {/* 新增 Passkey */}
@@ -493,10 +436,7 @@ export function PasskeySecurityCard() {
                                                 type="button"
                                                 size="sm"
                                                 variant="outline"
-                                                disabled={
-                                                    isBusy ||
-                                                    (passkeyOnly && credentials.length <= 1)
-                                                }
+                                                disabled={isBusy || credentials.length <= 1}
                                                 onClick={() => void handleDelete(cred)}
                                                 className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                                             >

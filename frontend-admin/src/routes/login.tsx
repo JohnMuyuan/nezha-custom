@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/hooks/useAuth"
 import { zodResolver } from "@hookform/resolvers/zod"
 import i18next from "i18next"
@@ -57,17 +56,16 @@ function Login() {
     const { t } = useTranslation()
 
     const [policy, setPolicy] = useState<AuthPolicyResponse | null>(null)
-    const [policyLoaded, setPolicyLoaded] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
     const [submitting, setSubmitting] = useState(false)
     const [passkeyBusy, setPasskeyBusy] = useState(false)
 
-    // Step 2: 2FA TOTP verification state (for new-device Passkey login or password login)
+    // Step 2: 2FA TOTP verification state (for new-device Passkey login or emergency password login)
     const [pendingTOTP, setPendingTOTP] = useState<PendingTOTPState | null>(null)
     const [totpCode, setTotpCode] = useState("")
     const [useRecoveryCode, setUseRecoveryCode] = useState(false)
     const totpInputRef = useRef<HTMLInputElement>(null)
-    const autofillAbortRef = useRef<AbortController | null>(null)
+    const abortRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
         let alive = true
@@ -76,23 +74,22 @@ function Login() {
                 if (alive) setPolicy(res)
             })
             .catch(() => {
+                // Fail closed to Passkey-only UI if policy fetch fails
                 if (alive) {
                     setPolicy({
                         single_admin: true,
-                        passkey_available: false,
-                        passkey_only: false,
-                        password_login_enabled: true,
+                        passkey_available: true,
+                        passkey_only: true,
+                        password_login_enabled: false,
                         oauth2_enabled: false,
                         emergency_password_override: false,
                         rp_id: "",
                     })
                 }
             })
-            .finally(() => {
-                if (alive) setPolicyLoaded(true)
-            })
         return () => {
             alive = false
+            abortRef.current?.abort()
         }
     }, [])
 
@@ -143,57 +140,6 @@ function Login() {
         [completePasskeyAuth],
     )
 
-    // Conditional UI autofill mediation when password form + passkey are both active
-    const initializeConditionalAutofill = useCallback(async () => {
-        if (!policy?.passkey_available || !policy?.password_login_enabled || pendingTOTP) {
-            return
-        }
-        const pkc = (window as any).PublicKeyCredential
-        if (!pkc || typeof pkc.getClientCapabilities !== "function") return
-        if (typeof pkc.parseRequestOptionsFromJSON !== "function") return
-
-        try {
-            const caps = await pkc.getClientCapabilities()
-            if (caps?.conditionalGet !== true) return
-
-            autofillAbortRef.current?.abort()
-            const controller = new AbortController()
-            autofillAbortRef.current = controller
-
-            const begin = await beginPasskeyLogin()
-            if (controller.signal.aborted) return
-            const publicKey = pkc.parseRequestOptionsFromJSON(begin.publicKey)
-            const serverRpId = publicKey?.rpId || begin.rp_id
-
-            let credential: any
-            try {
-                credential = await navigator.credentials.get({
-                    publicKey,
-                    signal: controller.signal,
-                    mediation: "conditional" as any,
-                })
-            } catch (err: any) {
-                if (err?.name === "NotAllowedError" || err?.name === "AbortError") {
-                    return
-                }
-                return
-            }
-
-            if (!credential || typeof credential.toJSON !== "function") return
-            await handlePasskeyServerVerify(begin.challenge_id, serverRpId, credential.toJSON())
-        } catch {
-            // Non-fatal progressive enhancement
-        }
-    }, [policy, pendingTOTP, handlePasskeyServerVerify])
-
-    useEffect(() => {
-        if (!policyLoaded) return
-        void initializeConditionalAutofill()
-        return () => {
-            autofillAbortRef.current?.abort()
-        }
-    }, [policyLoaded, initializeConditionalAutofill])
-
     const handleExplicitPasskeyLogin = async () => {
         if (passkeyBusy) return
         const pkc = (window as any).PublicKeyCredential
@@ -202,10 +148,9 @@ function Login() {
             return
         }
 
-        // Abort any ongoing conditional autofill before launching the explicit passkey dialog
-        autofillAbortRef.current?.abort()
+        abortRef.current?.abort()
         const controller = new AbortController()
-        autofillAbortRef.current = controller
+        abortRef.current = controller
 
         setPasskeyBusy(true)
         try {
@@ -221,7 +166,6 @@ function Login() {
                 })
             } catch (err: any) {
                 if (err?.name === "NotAllowedError" || err?.name === "AbortError") {
-                    void initializeConditionalAutofill()
                     return
                 }
                 toast.error("调用 Passkey 失败", { description: err?.message })
@@ -249,7 +193,7 @@ function Login() {
         },
     })
 
-    async function onSubmit(values: z.infer<typeof formSchema>) {
+    async function onSubmitEmergencyPassword(values: z.infer<typeof formSchema>) {
         if (submitting) return
         setSubmitting(true)
         try {
@@ -305,7 +249,7 @@ function Login() {
         }
     }
 
-    // Step 2: 2FA Verification (new device after Passkey, or fallback password+2FA)
+    // Step 2: 2FA Verification (new device after Passkey, or emergency break-glass login)
     if (pendingTOTP) {
         const isNewDevicePasskey = pendingTOTP.mode === "passkey"
         return (
@@ -410,153 +354,122 @@ function Login() {
         )
     }
 
-    // Passkey-Only Locked Mode: clean zero-password, zero-OAuth2 sign-in screen
-    if (policyLoaded && policy?.passkey_only && !policy?.password_login_enabled) {
+    // Emergency server-side break-glass override ONLY (NZ_EMERGENCY_ALLOW_PASSWORD=1)
+    if (policy?.emergency_password_override) {
         return (
             <div className="m-auto mt-24 max-w-xs sm:max-w-sm">
-                <div className="space-y-5 rounded-xl border bg-card p-6 text-center shadow-xs">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                        <Fingerprint className="h-6 w-6" />
-                    </div>
-                    <div className="space-y-1">
-                        <h1 className="text-lg font-bold">管理员 Passkey 登录</h1>
-                        <p className="text-xs leading-relaxed text-muted-foreground">
-                            已锁定「仅限 Passkey 登录」，密码与 OAuth2 入口均已关闭。
-                            <br />
-                            老设备只需 Passkey 一键进入，新设备将自动触发 6 位 2FA 验证。
-                        </p>
-                    </div>
-                    <Button
-                        type="button"
-                        disabled={passkeyBusy}
-                        onClick={() => void handleExplicitPasskeyLogin()}
-                        className="min-h-[46px] w-full gap-2 rounded-lg text-sm font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    >
-                        {passkeyBusy ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <Fingerprint className="h-4 w-4" />
-                        )}
-                        使用 Passkey 登录
-                    </Button>
-                    <p className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
-                        <Lock className="h-3 w-3" />
-                        <span>单管理员模式 · 端到端防钓鱼硬件验签</span>
-                    </p>
+                <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                    ⚠️ 应急救砖模式已启用（<code>NZ_EMERGENCY_ALLOW_PASSWORD=1</code>），密码登录已临时开放。请登录后立即补绑新 Passkey 并移除该环境变量。
                 </div>
+                <Form {...form}>
+                    <form
+                        onSubmit={form.handleSubmit(onSubmitEmergencyPassword)}
+                        className="space-y-5"
+                    >
+                        <FormField
+                            control={form.control}
+                            name="username"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("Username")}</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            placeholder="admin"
+                                            autoComplete="username"
+                                            autoFocus
+                                            autoCorrect="off"
+                                            autoCapitalize="none"
+                                            spellCheck={false}
+                                            required
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="password"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("Password")}</FormLabel>
+                                    <FormControl>
+                                        <div className="flex items-center gap-1.5">
+                                            <Input
+                                                type={showPassword ? "text" : "password"}
+                                                placeholder="admin"
+                                                autoComplete="current-password"
+                                                required
+                                                {...field}
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                aria-pressed={showPassword}
+                                                aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                                                onClick={() => setShowPassword((s) => !s)}
+                                            >
+                                                {showPassword ? (
+                                                    <EyeOff className="h-4 w-4" />
+                                                ) : (
+                                                    <Eye className="h-4 w-4" />
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <Button
+                            type="submit"
+                            disabled={submitting}
+                            className="w-full gap-2 rounded-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                        >
+                            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                            应急密码登录
+                        </Button>
+                    </form>
+                </Form>
             </div>
         )
     }
 
-    // Initial Setup / Emergency Override Mode (Password + optional Passkey button, NO OAuth2)
+    // Default & Permanent Passkey-Only Sign-In Screen (zero username/password inputs, zero OAuth2)
     return (
         <div className="m-auto mt-24 max-w-xs sm:max-w-sm">
-            {policy?.emergency_password_override && (
-                <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-                    ⚠️ 应急救砖模式已启用（<code>NZ_EMERGENCY_ALLOW_PASSWORD=1</code>），密码登录已临时开放。
+            <div className="space-y-5 rounded-xl border bg-card p-6 text-center shadow-xs">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Fingerprint className="h-6 w-6" />
                 </div>
-            )}
-
-            {policy?.passkey_available && (
-                <div className="mb-5 space-y-3">
-                    <Button
-                        type="button"
-                        disabled={passkeyBusy}
-                        onClick={() => void handleExplicitPasskeyLogin()}
-                        className="min-h-[44px] w-full gap-2 rounded-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    >
-                        {passkeyBusy ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <Fingerprint className="h-4 w-4" />
-                        )}
-                        使用 Passkey 登录
-                    </Button>
-                    <div className="flex w-full items-center gap-2">
-                        <Separator className="flex-1" />
-                        <span className="text-[11px] text-muted-foreground">
-                            或使用管理员密码（绑定 Passkey 后可彻底关闭）
-                        </span>
-                        <Separator className="flex-1" />
-                    </div>
-                </div>
-            )}
-
-            <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                    <p id="signin-passkey-desc" className="sr-only">
-                        管理员登录表单，支持 Passkey 自动填充或密码登录
+                <div className="space-y-1">
+                    <h1 className="text-lg font-bold">管理员 Passkey 登录</h1>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                        已彻底关闭账号密码与 OAuth2 登录，仅支持 Passkey。
+                        <br />
+                        老设备只需 Passkey 一键进入，新设备将自动触发 6 位 2FA 验证。
                     </p>
-                    <FormField
-                        control={form.control}
-                        name="username"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>{t("Username")}</FormLabel>
-                                <FormControl>
-                                    <Input
-                                        placeholder="admin"
-                                        autoComplete="username webauthn"
-                                        aria-describedby="signin-passkey-desc"
-                                        autoFocus
-                                        autoCorrect="off"
-                                        autoCapitalize="none"
-                                        spellCheck={false}
-                                        enterKeyHint="next"
-                                        required
-                                        {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="password"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>{t("Password")}</FormLabel>
-                                <FormControl>
-                                    <div className="flex items-center gap-1.5">
-                                        <Input
-                                            type={showPassword ? "text" : "password"}
-                                            placeholder="admin"
-                                            autoComplete="current-password"
-                                            enterKeyHint="done"
-                                            required
-                                            {...field}
-                                        />
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            aria-pressed={showPassword}
-                                            aria-label={showPassword ? "隐藏密码" : "显示密码"}
-                                            onClick={() => setShowPassword((s) => !s)}
-                                        >
-                                            {showPassword ? (
-                                                <EyeOff className="h-4 w-4" />
-                                            ) : (
-                                                <Eye className="h-4 w-4" />
-                                            )}
-                                        </Button>
-                                    </div>
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <Button
-                        type="submit"
-                        disabled={submitting}
-                        className="w-full gap-2 rounded-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
-                    >
-                        {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {t("Login")}
-                    </Button>
-                </form>
-            </Form>
+                </div>
+                <Button
+                    type="button"
+                    disabled={passkeyBusy}
+                    onClick={() => void handleExplicitPasskeyLogin()}
+                    className="min-h-[46px] w-full gap-2 rounded-lg text-sm font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                >
+                    {passkeyBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Fingerprint className="h-4 w-4" />
+                    )}
+                    使用 Passkey 登录
+                </Button>
+                <p className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
+                    <Lock className="h-3 w-3" />
+                    <span>单管理员模式 · 端到端防钓鱼硬件验签</span>
+                </p>
+            </div>
         </div>
     )
 }

@@ -35,9 +35,9 @@ vi.mock("@/api/passkey", () => ({
 beforeEach(() => {
     mocks.getAuthPolicy.mockResolvedValue({
         single_admin: true,
-        passkey_available: false,
-        passkey_only: false,
-        password_login_enabled: true,
+        passkey_available: true,
+        passkey_only: true,
+        password_login_enabled: false,
         oauth2_enabled: false,
         emergency_password_override: false,
         rp_id: "nzzz.yp.fyi",
@@ -50,17 +50,7 @@ afterEach(() => {
 })
 
 describe("Login Passkey + 2FA flows", () => {
-    it("hides password form and OAuth2 completely in passkey-only mode", async () => {
-        mocks.getAuthPolicy.mockResolvedValueOnce({
-            single_admin: true,
-            passkey_available: true,
-            passkey_only: true,
-            password_login_enabled: false,
-            oauth2_enabled: false,
-            emergency_password_override: false,
-            rp_id: "nzzz.yp.fyi",
-        })
-
+    it("unplugs password form and OAuth2 completely by default", async () => {
         render(
             <MemoryRouter>
                 <Login />
@@ -170,7 +160,16 @@ describe("Login Passkey + 2FA flows", () => {
         expect(screen.queryByLabelText("6 位动态验证码")).toBeNull()
     })
 
-    it("still supports initial password + 2FA flow before passkey-only lock is turned on", async () => {
+    it("renders emergency password + 2FA form only when emergency_password_override is enabled", async () => {
+        mocks.getAuthPolicy.mockResolvedValueOnce({
+            single_admin: true,
+            passkey_available: true,
+            passkey_only: false,
+            password_login_enabled: true,
+            oauth2_enabled: false,
+            emergency_password_override: true,
+            rp_id: "nzzz.yp.fyi",
+        })
         mocks.login.mockResolvedValueOnce("totp_required").mockResolvedValueOnce("ok")
 
         render(
@@ -179,8 +178,9 @@ describe("Login Passkey + 2FA flows", () => {
             </MemoryRouter>,
         )
 
+        expect(await screen.findByText(/应急救砖模式已启用/)).toBeTruthy()
         const [usernameInput, passwordInput] = await screen.findAllByPlaceholderText("admin")
-        expect(usernameInput.getAttribute("autocomplete")).toBe("username webauthn")
+        expect(usernameInput.getAttribute("autocomplete")).toBe("username")
 
         fireEvent.change(usernameInput, { target: { value: "admin" } })
         fireEvent.change(passwordInput, { target: { value: "MyPass123!" } })

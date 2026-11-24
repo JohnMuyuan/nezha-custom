@@ -40,7 +40,6 @@ const profileFormSchema = z.object({
 export const ProfileCard = ({ className }: { className: string }) => {
     const { t } = useTranslation()
     const { profile, setProfile } = useMainStore()
-    const passkeyOnly = Boolean(profile?.passkey_only)
 
     const form = useForm({
         resolver: zodResolver(profileFormSchema) as any,
@@ -61,9 +60,6 @@ export const ProfileCard = ({ className }: { className: string }) => {
         try {
             const res = await updateProfile({
                 new_username: values.new_username,
-                original_password: passkeyOnly ? "" : values.original_password,
-                new_password: passkeyOnly ? "" : values.new_password,
-                reject_password: values.reject_password,
             })
             if (res && res.rp_id && res.user_id && res.username) {
                 await signalCurrentUserDetailsSafe(
@@ -84,7 +80,7 @@ export const ProfileCard = ({ className }: { className: string }) => {
         setProfile(updated)
         setOpen(false)
         form.reset()
-        toast.success("个人资料已更新")
+        toast.success("管理员昵称已更新")
     }
 
     return (
@@ -116,44 +112,9 @@ export const ProfileCard = ({ className }: { className: string }) => {
                                         </FormItem>
                                     )}
                                 />
-                                {!passkeyOnly && (
-                                    <>
-                                        <FormField
-                                            control={form.control}
-                                            name="original_password"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>{t("OriginalPassword")}</FormLabel>
-                                                    <FormControl>
-                                                        <Input
-                                                            type="password"
-                                                            autoComplete="current-password"
-                                                            {...field}
-                                                        />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name="new_password"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>{t("NewPassword")}</FormLabel>
-                                                    <FormControl>
-                                                        <Input
-                                                            type="password"
-                                                            autoComplete="new-password"
-                                                            {...field}
-                                                        />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                    </>
-                                )}
+                                <p className="text-xs text-muted-foreground">
+                                    密码登录已永久关闭，此处仅用于修改管理员显示用户名（会自动同步到 Passkey 密码管理器）。
+                                </p>
 
                                 <DialogFooter className="justify-end">
                                     <DialogClose asChild>

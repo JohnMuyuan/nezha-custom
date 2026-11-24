@@ -143,21 +143,13 @@ func isEmergencyPasswordOverride() bool {
 }
 
 // isPasskeyOnlyActive reports whether password login is locked out right now.
-// Safeguard: requires both PasskeyOnly=true on an admin AND >=1 registered credential in DB,
-// AND emergency env override not set, so the admin can never be permanently bricked out.
+// Password login is permanently unplugged once at least 1 admin Passkey exists,
+// unless the server-side break-glass env var NZ_EMERGENCY_ALLOW_PASSWORD=1 is explicitly set.
 func isPasskeyOnlyActive() bool {
 	if isEmergencyPasswordOverride() || singleton.DB == nil {
 		return false
 	}
-	var admin model.User
-	if err := singleton.DB.Where("role = ? AND passkey_only = ?", model.RoleAdmin, true).First(&admin).Error; err != nil {
-		return false
-	}
-	var count int64
-	if err := singleton.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", admin.ID).Count(&count).Error; err != nil {
-		return false
-	}
-	return count > 0
+	return countAdminPasskeys() > 0
 }
 
 func countAdminPasskeys() int64 {
@@ -671,8 +663,8 @@ func deletePasskey(c *gin.Context) (any, error) {
 	if err := singleton.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", fresh.ID).Count(&total).Error; err != nil {
 		return nil, newGormError("%v", err)
 	}
-	if fresh.PasskeyOnly && total <= 1 {
-		return nil, errors.New("当前已开启「仅限 Passkey 登录」，不能删除最后一把 Passkey（请先新增一把或先关闭仅限 Passkey 开关）")
+	if total <= 1 {
+		return nil, errors.New("当前已锁定仅限 Passkey 登录，不能删除最后一把 Passkey（请先新增一把备用 Passkey）")
 	}
 
 	res := singleton.DB.Where("user_id = ? AND credential_id = ?", fresh.ID, credID).Delete(&model.PasskeyCredential{})
@@ -700,14 +692,15 @@ func updateAuthPolicy(c *gin.Context) (authPolicyResponse, error) {
 		return authPolicyResponse{}, singleton.Localizer.ErrorT("permission denied")
 	}
 
-	if form.PasskeyOnly {
-		var count int64
-		if err := singleton.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", fresh.ID).Count(&count).Error; err != nil {
-			return authPolicyResponse{}, newGormError("%v", err)
-		}
-		if count < 1 {
-			return authPolicyResponse{}, errors.New("请先至少绑定 1 把 Passkey 后，再开启「仅限 Passkey 登录」")
-		}
+	if !form.PasskeyOnly {
+		return authPolicyResponse{}, errors.New("账号密码登录入口已永久拔除，无法在面板重新开启（紧急救砖请通过服务器环境变量 NZ_EMERGENCY_ALLOW_PASSWORD=1）")
+	}
+	var count int64
+	if err := singleton.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", fresh.ID).Count(&count).Error; err != nil {
+		return authPolicyResponse{}, newGormError("%v", err)
+	}
+	if count < 1 {
+		return authPolicyResponse{}, errors.New("请先至少绑定 1 把 Passkey 后，再开启「仅限 Passkey 登录」")
 	}
 
 	if err := singleton.DB.Model(&model.User{}).Where("id = ?", fresh.ID).Update("passkey_only", form.PasskeyOnly).Error; err != nil {
