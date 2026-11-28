@@ -1,6 +1,8 @@
 package singleton
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -296,5 +298,89 @@ func TestWrapCommandAndHistoryCoalesce(t *testing.T) {
 	hist = appendCoalescedHistory(hist, "user", "不要重复备份")
 	if len(hist) != 3 {
 		t.Fatalf("expected consecutive user turns to coalesce into 3 alternating messages, got %d", len(hist))
+	}
+}
+
+func TestDeterministicSSHBruteDefenseAnd403Fallback(t *testing.T) {
+	// 1. Whitelist parser strictly validates IPs/CIDRs and rejects injection or /0
+	wl4, wl6 := parseValidatedWhitelist("36.249.57.0/24, 23.147.56.205, 0.0.0.0/0, 10.9.8.*, $(rm -rf /), 2001:db8::1", "154.40.43.117", "127.0.0.1")
+	joined4 := strings.Join(wl4, ",")
+	if !strings.Contains(joined4, "36.249.57.0/24") || !strings.Contains(joined4, "23.147.56.205") || !strings.Contains(joined4, "154.40.43.117") || !strings.Contains(joined4, "10.9.8.0/24") {
+		t.Fatalf("unexpected validated IPv4 whitelist: %v", wl4)
+	}
+	if strings.Contains(joined4, "0.0.0.0/0") || strings.Contains(joined4, "rm") || strings.Contains(joined4, "127.0.0.1") {
+		t.Fatalf("unsafe or loopback token leaked into IPv4 whitelist: %v", wl4)
+	}
+	if len(wl6) != 1 || wl6[0] != "2001:db8::1" {
+		t.Fatalf("unexpected IPv6 whitelist: %v", wl6)
+	}
+
+	// 2. Generated defense script has no printf format glitches & no shell injection
+	script := buildSSHBruteDefenseScript("36.249.57.0/24, $(whoami)", "154.40.43.117", true)
+	if strings.Contains(script, "%!") {
+		t.Fatalf("buildSSHBruteDefenseScript produced malformed fmt verb:\n%s", script)
+	}
+	if strings.Contains(script, "$(whoami)") {
+		t.Fatal("shell injection token leaked into defense script")
+	}
+	if !strings.Contains(script, "table inet ai_sec_ssh") || !strings.Contains(script, "limit rate over 4/minute burst 6 packets") {
+		t.Fatal("defense script missing nftables rate-limit table")
+	}
+
+	// 3. Parse structured script output (both clean & with untrusted Accepted login)
+	sampleOut := `=== AI_SEC_SSH_RESULT ===
+HOST=HKT2025
+SSH_PORTS=22
+BACKEND=nftables
+RATELIMIT=yes (4/min burst 6 -> 自动进24h黑名单)
+STATS=total_fails=2392 unique4=123 unique6=0 untrusted_accepted=0
+BANNED_NOW_V4=118
+BANNED_NOW_V6=0
+BANSET_TOTAL=118
+KILLED_PREAUTH=4
+SSH_ALIVE=yes
+AGENT_ALIVE=active
+WHITELIST_V4=36.249.57.0/24 23.147.56.205
+TOP_OFFENDERS=62.99.5.57(1796) 154.144.237.32(873)
+=== UNTRUSTED_ACCEPTED ===
+=== END ===`
+	parsed := parseSSHBruteDefenseOutput(sampleOut)
+	if !parsed.ParsedOK || parsed.Backend != "nftables" || parsed.BannedNowV4 != 118 || parsed.BanSetTotal != 118 || parsed.KilledPreauth != 4 || len(parsed.UntrustedAccepted) != 0 {
+		t.Fatalf("unexpected parsed defense result: %+v", parsed)
+	}
+
+	breachOut := strings.Replace(sampleOut, "=== UNTRUSTED_ACCEPTED ===\n=== END ===", "=== UNTRUSTED_ACCEPTED ===\nNov 28 13:20:01 host sshd[99]: Accepted password for root from 62.99.5.57 port 33333 ssh2\n=== END ===", 1)
+	parsedBreach := parseSSHBruteDefenseOutput(breachOut)
+	if len(parsedBreach.UntrustedAccepted) != 1 || !strings.Contains(parsedBreach.UntrustedAccepted[0], "62.99.5.57") {
+		t.Fatalf("expected 1 untrusted accepted entry, got %+v", parsedBreach.UntrustedAccepted)
+	}
+
+	// 4. Upstream HTTP 403 safety-classifier refusal detection
+	err403 := errors.New(`模型接口返回 HTTP 403: {"error":{"message":"I'm sorry, I can't help with that request.","type":"invalid_request_error"}}`)
+	if !isModelGatewayRefusalErr(err403) {
+		t.Fatal("expected HTTP 403 policy refusal error to be detected")
+	}
+	if isModelGatewayRefusalErr(errors.New("模型网关暂时繁忙 (HTTP 502)")) {
+		t.Fatal("expected transient HTTP 502 not to be classified as gateway policy refusal")
+	}
+
+	// 5. Forensic sanitizer folds repetitive SSH failure flood lines
+	var flood strings.Builder
+	flood.WriteString("=== HOST ===\nwawo-us\n")
+	for i := 0; i < 40; i++ {
+		flood.WriteString("Nov 27 21:23:38 host sshd[1]: Failed password for invalid user test from 62.99.5.57 port 1234 ssh2\n")
+	}
+	sanitized := sanitizeForensicForLLM(flood.String())
+	if !strings.Contains(sanitized, "其余 28 条同类认证失败日志已折叠汇总") {
+		t.Fatalf("expected repetitive failure lines to be folded, got:\n%s", sanitized)
+	}
+
+	// 6. De-sensitized prompt avoids offensive/SOAR trigger jargon
+	p := buildSecurityResponseSystemPrompt(true, "36.249.57.0/24")
+	if strings.Contains(p, "SOAR Responder") || strings.Contains(p, "先斩后奏") || strings.Contains(p, "查杀") {
+		t.Fatalf("security prompt still contains trigger jargon: %s", p)
+	}
+	if !strings.Contains(p, "[BENIGN_CHANGE]") || !strings.Contains(p, "36.249.57.0/24") {
+		t.Fatal("security prompt missing required whitelist or benign marker")
 	}
 }

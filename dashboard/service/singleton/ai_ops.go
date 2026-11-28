@@ -1034,7 +1034,7 @@ func (ao *AIOpsClass) investigateServerAnomaly(srv *model.Server, triggerType, t
 	}
 
 	finalStatus := "reported"
-	if cfg.AutoSelfHeal {
+	if cfg.AutoSelfHeal && hasMutatingExecutedStep(steps) {
 		finalStatus = "healed"
 	}
 	_ = DB.Model(&incident).Updates(map[string]any{
